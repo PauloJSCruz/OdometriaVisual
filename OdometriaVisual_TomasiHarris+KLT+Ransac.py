@@ -71,10 +71,24 @@ prevFrameGray = None
 prevFrameCanny = None
 prevCorners = []
 
-Corners = []
-
-
 # endregion
+
+
+class LinearModel:
+    def __init__(self):
+        self.slope = 0
+        self.intercept = 0
+
+    def fit(self, data):
+        x = [point[0] for point in data]
+        y = [point[1] for point in data]
+        if len(x) > 0:
+            self.slope, self.intercept = np.polyfit(x, y, 1)
+
+    def distance(self, point):
+        x, y = point
+        expected_y = self.slope * x + self.intercept
+        return abs(y - expected_y)
 
 
 def LoadVideo():
@@ -89,6 +103,24 @@ def LoadVideo():
     #     print("Erro ao abrir o vídeo.")
     #     exit()
     # endregion
+
+
+def ReadFilesTxt(file):
+    with open(file, 'r') as f:
+        linhas = f.readlines()
+        # Inicialize uma lista vazia para armazenar os valores da matriz
+        valores = []
+        # Percorra cada linha
+        for linha in linhas:
+            # Remova os caracteres de espaço em branco e os colchetes
+            linha = linha.strip().strip('[]')
+
+            # Divida a linha em elementos separados por espaço em branco
+            elementos = linha.split()
+
+            # Converta cada elemento para float e adicione-o à lista de valores
+            valores.extend(map(float, elementos))
+    return valores
 
 
 def CortarMetadeInferior(frame):
@@ -133,11 +165,11 @@ def CaptureNewFrame(CapturedVideo):
 def DisplayFrame(textOnFrame):
     sizeTextOnFrame = len(textOnFrame)
     for i, (frame, text, value) in enumerate(textOnFrame):
-        printOnFrame(frame, f"{text}", value, (50, 50 + (35 * i)))
+        PrintOnFrame(frame, f"{text}", value, (50, 50 + (35 * i)))
     return cv2.imshow('frame', frame)
 
 
-def printOnFrame(Frame, texto, valor, pos):
+def PrintOnFrame(Frame, texto, valor, pos):
     # Adicione texto ao frame
     texto = texto + ": " + str(valor)
     posicao = pos  # Posição do texto no frame
@@ -149,7 +181,7 @@ def printOnFrame(Frame, texto, valor, pos):
     cv2.putText(Frame, texto, posicao, fonte, escala, cor, espessura)
 
 
-def RansacPrint():
+def RansacPrint(Corners):
     # region Definir os parâmetros para o algoritmo RANSAC
     numOfCoordinatesMin = 10  # Número mínimo de pontos para ajustar o modelo
     k = 100  # Número de iterações do RANSAC
@@ -177,6 +209,34 @@ def RansacPrint():
             Frame, data, bestModel, distanceToConsiderInlier)
 
 
+def DrawOutliersAndInliers(frame, data, model, distanceToConsiderInlier):
+    # Função para desenhar outliers e inliers no quadro
+
+    for point in data:
+        # Verificar se o ponto é um outlier ou inlier
+        if model.distance(point) > distanceToConsiderInlier:
+            color = (0, 0, 255)  # Vermelho (outlier)
+        else:
+            color = (0, 255, 0)  # Verde (inlier)
+        # Converter as coordenadas do ponto para inteiros
+        center = (int(point[0]), int(point[1]))
+        # Desenhar a bola no quadro
+        cv2.circle(frame, center, 5, color, -1)
+
+
+def DrawTracks(frame, mask, goodNew, goodOld, color):
+    # Desenhar as linhas que representam o fluxo óptico nos quadros
+    for i, (new, old) in enumerate(zip(goodNew, goodOld)):
+        a, b = new.ravel()
+        c, d = old.ravel()
+        a, b, c, d = int(a), int(b), int(c), int(d)  # Convert to integers
+        mask = cv2.line(mask, (a, b), (c, d), (0, 255, 0), 2)
+        frame = cv2.circle(frame, (a, b), 5, (0, 0, 255), 2)
+
+    frameMask = cv2.add(frame, mask)
+    return frameMask
+
+
 def Ransac(data, model, numOfCoordinatesMin, k, distanceToConsiderInlier, minInlinersForAccept):
     bestModel = None
     bestConsensusSet = None
@@ -202,51 +262,6 @@ def Ransac(data, model, numOfCoordinatesMin, k, distanceToConsiderInlier, minInl
                 bestConsensusSet = consensusSet
 
     return bestModel, bestConsensusSet
-
-
-class LinearModel:
-    def __init__(self):
-        self.slope = 0
-        self.intercept = 0
-
-    def fit(self, data):
-        x = [point[0] for point in data]
-        y = [point[1] for point in data]
-        if len(x) > 0:
-            self.slope, self.intercept = np.polyfit(x, y, 1)
-
-    def distance(self, point):
-        x, y = point
-        expected_y = self.slope * x + self.intercept
-        return abs(y - expected_y)
-
-# Função para desenhar outliers e inliers no quadro
-
-
-def DrawOutliersAndInliers(frame, data, model, distanceToConsiderInlier):
-    for point in data:
-        # Verificar se o ponto é um outlier ou inlier
-        if model.distance(point) > distanceToConsiderInlier:
-            color = (0, 0, 255)  # Vermelho (outlier)
-        else:
-            color = (0, 255, 0)  # Verde (inlier)
-        # Converter as coordenadas do ponto para inteiros
-        center = (int(point[0]), int(point[1]))
-        # Desenhar a bola no quadro
-        cv2.circle(frame, center, 5, color, -1)
-
-
-def DrawTracks(frame, mask, goodNew, goodOld, color):
-    # Desenhar as linhas que representam o fluxo óptico nos quadros
-    for i, (new, old) in enumerate(zip(goodNew, goodOld)):
-        a, b = new.ravel()
-        c, d = old.ravel()
-        a, b, c, d = int(a), int(b), int(c), int(d)  # Convert to integers
-        mask = cv2.line(mask, (a, b), (c, d), (0, 255, 0), 2)
-        frame = cv2.circle(frame, (a, b), 5, (0, 0, 255), 2)
-
-    frameMask = cv2.add(frame, mask)
-    return frameMask
 
 
 def DetectCorners(frameCanny):
@@ -295,9 +310,22 @@ def TrackFeatures(prevFrameGray, FrameGray, prevCorners):
     return corners, goodCorners, goodOldCorners
 
 
+def MatrizFundamental(goodCorners, goodOldCorners):
+    F, mask = cv2.findFundamentalMat(
+        goodCorners, goodOldCorners, cv2.FM_RANSAC)
+
+    # Refinar a matriz fundamental
+    goodCorners = goodCorners[mask.ravel() == 1]
+    goodOldCorners = goodOldCorners[mask.ravel() == 1]
+    F, _ = cv2.findFundamentalMat(goodCorners, goodOldCorners, cv2.FM_8POINT)
+    F = cv2.correctMatches(F, goodCorners.T, goodOldCorners.T)
+
+    return F
+
+
 def MatrizEssencial(goodCorners, goodOldCorners, intrinsicParameters):
     matrizEssencial, mask = cv2.findEssentialMat(
-        goodCorners, goodOldCorners, intrinsicParameters)
+        goodCorners, goodOldCorners, intrinsicParameters,)
     rotation, translation = DecomporMatrizEssencial(
         matrizEssencial, goodOldCorners, goodCorners)
     return rotation, translation
@@ -306,14 +334,19 @@ def MatrizEssencial(goodCorners, goodOldCorners, intrinsicParameters):
 def DecomporMatrizEssencial(matrizEssencial, goodOldCorners, goodCorners):
     rotation1, rotation2, translation = cv2.decomposeEssentialMat(
         matrizEssencial, goodOldCorners, goodCorners)
+    return rotation1, rotation2, translation
 
 
 def LoadCalibrationCamara():
-    with open('calibration.txt', 'r') as f:
-        params = np.fromstring(f.readline(), dtype=np.float64, sep=' ')
-        projectionMatrix = np.reshape(params, (3, 4))
-        intrinsicParameters = projectionMatrix[0:3, 0:3]
-    return intrinsicParameters, projectionMatrix
+    valores = ReadFilesTxt('cameramatrix.txt')
+    # Converta a lista de valores em uma matriz NumPy
+    intrinsicParameters = np.array(valores).reshape((3, 3))
+
+    valores = ReadFilesTxt('distortioncoefficient.txt')
+    distortioncoefficient = np.array(valores).reshape((1, 5))
+
+    # projectionMatrix = np.reshape(params, (3, 4))
+    return intrinsicParameters, distortioncoefficient
 
 
 def main():
@@ -322,7 +355,9 @@ def main():
     textOnFrame = []
     Corners = []
     fps = 0
-    # intrinsicParameters, projectionMatrix = LoadCalibrationCamara()
+
+    intrinsicParameters, distortioncoefficient = LoadCalibrationCamara()
+
     CapturedVideo = LoadVideo()
     firstFrame, prevFrameCanny = CaptureNewFrame(CapturedVideo)
     prevCorners = DetectCorners(prevFrameCanny)
@@ -351,7 +386,12 @@ def main():
         frameMask = DrawTracks(frame, mask, goodCorners,
                                goodOldCorners, color=None)
 
-        # matrizEssencial = MatrizEssencial(goodCorners, goodOldCorners)
+        # Obter a matriz Fundamental
+        matrizFundamental = MatrizFundamental(goodCorners, goodOldCorners)
+
+        # Obter a matriz Essencial
+        matrizEssencial = MatrizEssencial(
+            goodCorners, goodOldCorners, intrinsicParameters)
 
         if prevCorners is not None:
             textOnFrame.append([frameMask, "fps", round(fps, 2)])

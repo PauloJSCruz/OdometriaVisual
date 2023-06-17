@@ -45,18 +45,6 @@ if SaveImage is True:
     os.makedirs(OutputFolder, exist_ok=True)
 # endregion
 
-# region Parâmetros do detector de cantos Shi-Tomasi
-ShiTomasiParams = dict(maxCorners=100,
-                       qualityLevel=0.1,
-                       minDistance=50,
-                       blockSize=7)
-# endregion
-
-# region Parameters for lucas kanade optical flow
-LucasKanadeParams = dict(winSize=(25, 25),
-                         maxLevel=2,
-                         criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.01))
-# endregion
 
 # region Global variables
 
@@ -130,25 +118,18 @@ def CortarMetadeInferior(frame):
 
 
 def CaptureNewFrame(CapturedVideo):
-    # Definir a largura e altura desejadas do frame
-    FrameWidth = 1024
-    FrameHeight = 700
-
     # region Frame
     # Read a frame from the video
     CaptureState, frame = CapturedVideo.read()
     if not CaptureState:
         CapturedVideo.release()
         cv2.destroyAllWindows()
-        exit()
+        frame = []
+        frameCanny = []
+        return frame, frameCanny
 
     # Frame = CortarMetadeInferior(Frame)
-
-    # print(CapturedVideo.get(cv2.CAP_PROP_POS_FRAMES))
-
-    # Rodar e Redimensionar o frame para a largura e altura desejadas
-    # Frame = cv2.rotate(Frame, rotateCode = cv2.ROTATE_90_CLOCKWISE)
-    frame = cv2.resize(frame, (FrameWidth, FrameHeight))
+    
     # endregion
 
     # region Preprocessing
@@ -163,10 +144,16 @@ def CaptureNewFrame(CapturedVideo):
 
 
 def DisplayFrame(textOnFrame):
-    sizeTextOnFrame = len(textOnFrame)
+    # Definir a largura e altura desejadas do frame
+    FrameWidth = 1024
+    FrameHeight = 700
+
     for i, (frame, text, value) in enumerate(textOnFrame):
         PrintOnFrame(frame, f"{text}", value, (50, 50 + (35 * i)))
-    return cv2.imshow('frame', frame)
+        
+    # Rodar e Redimensionar o frame para a largura e altura desejadas
+    frame = cv2.resize(frame, (FrameWidth, FrameHeight))    
+    cv2.imshow('frame', frame)
 
 
 def PrintOnFrame(Frame, texto, valor, pos):
@@ -263,20 +250,33 @@ def Ransac(data, model, numOfCoordinatesMin, k, distanceToConsiderInlier, minInl
 
     return bestModel, bestConsensusSet
 
+# region Detetor de cantos de Shi-Tomasi
+
 
 def DetectCorners(frameCanny):
     global mask
-    # region Detetor de cantos de Shi-Tomasi
     cornersDetected = []
+    # region Parâmetros do detector de cantos Shi-Tomasi
+    ShiTomasiParams = dict(maxCorners=100,
+                           qualityLevel=0.1,
+                           minDistance=50,
+                           blockSize=7)
+    # endregion
+
     cornersDetected = cv2.goodFeaturesToTrack(
         frameCanny, mask=None, **ShiTomasiParams, useHarrisDetector=True, k=0.04)
-    # endregion
+
     mask = np.zeros_like(prevFrame)
     return cornersDetected
+# endregion
 
 
 def TrackFeatures(prevFrameGray, FrameGray, prevCorners):
-    global LucasKanadeParams
+    # region Parameters for lucas kanade optical flow
+    LucasKanadeParams = dict(winSize=(25, 25),
+                             maxLevel=2,
+                             criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.01))
+    # endregion
     # Create some random colors
     color = np.random.randint(0, 255, (100, 3))
 
@@ -311,8 +311,7 @@ def TrackFeatures(prevFrameGray, FrameGray, prevCorners):
 
 
 def MatrizFundamental(goodCorners, goodOldCorners):
-    F, mask = cv2.findFundamentalMat(
-        goodCorners, goodOldCorners, cv2.FM_RANSAC)
+    F, mask = cv2.findFundamentalMat(  goodCorners, goodOldCorners, cv2.FM_RANSAC)
 
     # Refinar a matriz fundamental
     goodCorners = goodCorners[mask.ravel() == 1]
@@ -324,17 +323,26 @@ def MatrizFundamental(goodCorners, goodOldCorners):
 
 
 def MatrizEssencial(goodCorners, goodOldCorners, intrinsicParameters):
-    matrizEssencial, mask = cv2.findEssentialMat(
-        goodCorners, goodOldCorners, intrinsicParameters,)
-    rotation, translation = DecomporMatrizEssencial(
-        matrizEssencial, goodOldCorners, goodCorners)
+    matrizEssencial, mask = cv2.findEssentialMat(   goodCorners, goodOldCorners, intrinsicParameters)
+    rotation, translation = DecomporMatrizEssencial(  matrizEssencial, goodCorners, goodOldCorners, intrinsicParameters)
     return rotation, translation
 
 
-def DecomporMatrizEssencial(matrizEssencial, goodOldCorners, goodCorners):
-    rotation1, rotation2, translation = cv2.decomposeEssentialMat(
-        matrizEssencial, goodOldCorners, goodCorners)
-    return rotation1, rotation2, translation
+def DecomporMatrizEssencial(essentialMatrix, goodCorners, goodOldCorners,  cameraMatrix):
+    # Recupera as matrizes de rotação e translação da matriz essencial
+    _, R, T, _ = cv2.recoverPose( essentialMatrix, goodCorners, goodOldCorners, cameraMatrix)
+
+    return R, T
+
+
+def UpdateCameraMotion(R, T, prevCameraMotion, prevCameraPosition):
+    # Atualiza a estimativa de movimento da câmera
+    cameraMotion = np.dot(prevCameraMotion, np.hstack((R, T)))
+
+    # Atualiza a posição estimada da câmera no mundo
+    cameraPosition = prevCameraPosition + np.dot(prevCameraMotion[:, :3], T)
+
+    return cameraMotion, cameraPosition
 
 
 def LoadCalibrationCamara():
@@ -350,11 +358,16 @@ def LoadCalibrationCamara():
 
 
 def main():
+    fps = 0
+    fpsMedia = 0
+    cornersMedia = 0
     CountFrames = 0
+    CountMedia = 0
     ResetCorners = 25
     textOnFrame = []
     Corners = []
-    fps = 0
+    prevCameraMotion = []
+    prevCameraPosition = []
 
     intrinsicParameters, distortioncoefficient = LoadCalibrationCamara()
 
@@ -364,9 +377,12 @@ def main():
     mask = np.zeros_like(firstFrame)
 
     while True:
+        CountMedia += 1
         # start time to calculate FPS
         start = time.time()
         frame, frameCanny = CaptureNewFrame(CapturedVideo)
+        if len(frame) == 0:
+            break
         CountFrames = CountFrames + 1
 
         Corners, goodCorners, goodOldCorners = TrackFeatures(
@@ -387,11 +403,12 @@ def main():
                                goodOldCorners, color=None)
 
         # Obter a matriz Fundamental
-        matrizFundamental = MatrizFundamental(goodCorners, goodOldCorners)
+        # matrizFundamental = MatrizFundamental(goodCorners, goodOldCorners)
 
         # Obter a matriz Essencial
-        matrizEssencial = MatrizEssencial(
-            goodCorners, goodOldCorners, intrinsicParameters)
+        relativeRotation, relativeTranslation = MatrizEssencial( goodCorners, goodOldCorners, intrinsicParameters)
+
+        # cameraMotion, cameraPosition = UpdateCameraMotion(relativeRotation, relativeTranslation, prevCameraMotion, prevCameraPosition)
 
         if prevCorners is not None:
             textOnFrame.append([frameMask, "fps", round(fps, 2)])
@@ -400,31 +417,24 @@ def main():
                 [frameMask, f"CountFrames {ResetCorners}", CountFrames])
             DisplayFrame(textOnFrame)
 
+
+        # prevCameraMotion = cameraMotion
+        # prevCameraPosition = cameraPosition
         prevFrameCanny = frameCanny.copy()
         prevCorners = goodCorners
-
-        # region Output
-        # if SaveImage is True:
-        #     # Salvar o frame como imagem
-        #     DataTimeNow = datetime.now()
-        #     # cv2.imwrite(f'{OutputFolder}{CapturedVideo.get(cv2.CAP_PROP_POS_FRAMES)}-{now.strftime("%d.%m.%Y_%H.%M.%S")}.png' , Frame)
-        #     # cv2.imwrite(f'{OutputFolder}{DataTimeNow.strftime("%d.%m.%Y_%H.%M.%S")}-1FrameGray.png' , FrameGray)
-        #     # cv2.imwrite(f'{OutputFolder}{DataTimeNow.strftime("%d.%m.%Y_%H.%M.%S")}-2FrameCanny.png' , FrameCanny)
-        #     # cv2.imwrite(f'{OutputFolder}{DataTimeNow.strftime("%d.%m.%Y_%H.%M.%S")}-3OutputFrame.png' , Frame)
-        #     cv2.imwrite(f'{OutputFolder}{DataTimeNow.strftime("%d.%m.%Y_%H.%M.%S")}-4OutputFrame.png' , FrameMask)
-        #     # PlotFrames([(FrameGray, "FrameGray"), (FrameCanny, "FrameCanny"), (FrameMask, "FrameMask")])
-
-        # if cv2.waitKey(5) & 0xFF == ord('q'):
-        #     break
-        # endregion
 
         # End time
         end = time.time()
         # calculate the FPS for current frame detection
         fps = 1 / (end-start)
-
+        fpsMedia = fpsMedia + fps
+        cornersMedia += len(Corners)
         textOnFrame = []
         cv2.waitKey(5)
+    fpsMedia = fpsMedia / CountMedia
+    cornersMedia = cornersMedia / CountMedia
+    print(f"\nFrames por segundo: {fpsMedia}\n")
+    print(f"Corners media: {cornersMedia}\n")
 
 
 if __name__ == '__main__':

@@ -19,6 +19,6 @@ matplotlib.pylab
 ## Run
     F5 -> Selecionar "Python File ...."
 
-## Versão Python
+## Versão Python Usada
     Python 3.11.4
     

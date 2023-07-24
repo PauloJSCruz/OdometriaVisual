@@ -1,11 +1,12 @@
 # OdometriaVisual
 
+## Primeiros passos
 Criar uma pasta chamada "Recursos"
-Adicionar o video "Robotica1080"
+Adicionar o video "Robotica1080.mp4"
 
 Abrir o fecheiro "OdometriaVisual_TomasiHarris" (com VSCode é mais simples)
 
-# Imports:
+## Imports:
 cv2
     pip install opencv-python
 
@@ -15,6 +16,6 @@ numpy
 matplotlib.pylab
     pip install matplotlib numpy
 
-# Run
+## Run
     F5 -> Selecionar "Python File ...."
     

@@ -127,8 +127,9 @@ def LoadVideo():
     # region Load Video and path for save image
     # VideoPath = "Recursos/VideoCorredor.mp4"
     # VideoPath = "Recursos/VideoVoltaCompleta.mp4"
-    VideoPath = "Recursos/Robotica1080.mp4"
-    return cv2.VideoCapture(VideoPath)
+    # videoPath = "Recursos/Robotica1080.mp4"
+    videoPath = "Recursos/KittiVideo.mp4"
+    return cv2.VideoCapture(videoPath)
     # # CapturedVideo = cv2.VideoCapture(0)    # Live
     # # Verificar se o video foi carregado corretamente
     # if not CapturedVideo.isOpened():
@@ -155,12 +156,16 @@ def ReadFilesTxt(file):
     return valores
 
 # Not Used
+
+
 def CortarMetadeInferior(frame):
     altura, largura, _ = frame.shape
     metade_inferior = frame[altura//2:altura, :]
     return metade_inferior
 
 # Not Used
+
+
 def Ransac(data, model, numOfCoordinatesMin, k, distanceToConsiderInlier, minInlinersForAccept):
     bestModel = None
     bestConsensusSet = None
@@ -214,6 +219,24 @@ def CaptureNewFrame(CapturedVideo):
     return frame, frameCanny
 
 
+def CaptureNewKittiFrame():
+    imagesDir = "Recursos\KITTI\image_l"
+    listImages = sorted(os.listdir(imagesDir))
+    # Ler Primeira imagem para obter as dimensões
+    firstImage = cv2.imread(os.path.join(imagesDir, listImages[0]))
+    height, width, _ = firstImage.shape
+    fps = 30
+    # Criar o objeto VideoWriter
+    videoWrite = cv2.VideoWriter("Recursos/KittiVideo.mp4", cv2.VideoWriter_fourcc('m', 'p', '4', 'v'), fps, (width, height))
+    # Iterar sobre todas as imagnes e gravar no videoWriter
+    for listImage in listImages:
+        image = cv2.imread(os.path.join(imagesDir, listImage))
+        videoWrite.write(image)
+    # Libertar Recursos
+    videoWrite.release()
+    dataLogger.info('\n Kitti video is ready \n')
+
+
 def DisplayFrame(textOnFrame):
     # Definir a largura e altura desejadas do frame
     FrameWidth = 1024
@@ -231,7 +254,7 @@ def DetectCorners(frameCanny):
     # region Detetor de cantos de Shi-Tomasi
     cornersDetected = []
     # region Parâmetros do detector de cantos Shi-Tomasi
-    ShiTomasiParams = dict(maxCorners=100,
+    ShiTomasiParams = dict(maxCorners=500,
                            qualityLevel=0.1,
                            minDistance=50,
                            blockSize=7)
@@ -239,6 +262,7 @@ def DetectCorners(frameCanny):
 
     cornersDetected = cv2.goodFeaturesToTrack(
         frameCanny, mask=None, **ShiTomasiParams, useHarrisDetector=True, k=0.04)
+    
     return cornersDetected
 # endregion
 
@@ -301,10 +325,11 @@ def MatrizFundamental(goodCorners, goodOldCorners):
 
 
 def MatrizEssencial(goodCorners, goodOldCorners, intrinsicParameters):
-    matrizEssencial, mask = cv2.findEssentialMat(
-        goodCorners, goodOldCorners, intrinsicParameters)
-    essencialMatrixRotation, essencialMatrixTranslation = DecomporMatrizEssencial(
-        matrizEssencial, goodCorners, goodOldCorners, intrinsicParameters)
+
+    matrizEssencial, mask = cv2.findEssentialMat(goodOldCorners, goodCorners, intrinsicParameters)
+
+
+    essencialMatrixRotation, essencialMatrixTranslation = DecomporMatrizEssencial( matrizEssencial, goodOldCorners, goodCorners, intrinsicParameters)
 
     dataLogger.info(f'\n matrizEssencial \n {matrizEssencial}')
     dataLogger.info(f'\n rotation \n {essencialMatrixRotation}')
@@ -314,10 +339,9 @@ def MatrizEssencial(goodCorners, goodOldCorners, intrinsicParameters):
     return essencialMatrixRotation, essencialMatrixTranslation
 
 
-def DecomporMatrizEssencial(essentialMatrix, goodCorners, goodOldCorners,  cameraMatrix):
+def DecomporMatrizEssencial(essentialMatrix, goodOldCorners, goodCorners, cameraMatrix):
     # Recupera as matrizes de rotação e translação da matriz essencial
-    _, breakDownRotation, breakDownTranslation, _ = cv2.recoverPose(
-        essentialMatrix, goodCorners, goodOldCorners, cameraMatrix)
+    _, breakDownRotation, breakDownTranslation, _ = cv2.recoverPose( essentialMatrix, goodOldCorners, goodCorners, cameraMatrix)
 
     dataLogger.info(f'\n breakDownRotation \n {breakDownRotation}')
     dataLogger.info(f'\n breakDownTranslation \n {breakDownTranslation}')
@@ -392,13 +416,21 @@ def PlotFrames(frames):
 
 
 def LoadCalibrationCamara():
-    valores = ReadFilesTxt('CalibrationCam/cameramatrix.txt')
-    # Converta a lista de valores em uma matriz NumPy
-    intrinsicParameters = np.array(valores).reshape((3, 3))
+    
+    with open('CalibrationCam/calib.txt') as f:
+        params = np.fromstring(f.readline(), dtype=np.float64, sep=' ')
+        distortioncoefficient = np.reshape(params, (3,4))
+        intrinsicParameters = distortioncoefficient[0:3, 0:3]
 
-    valores = ReadFilesTxt('CalibrationCam/distortioncoefficient.txt')
-    distortioncoefficient = np.array(valores).reshape((1, 5))
+    # -------------------------------------------------------------------------
+    # valores = ReadFilesTxt('CalibrationCam/cameramatrix.txt')
+    # # Converta a lista de valores em uma matriz NumPy
+    # intrinsicParameters = np.array(valores).reshape((3, 3))
 
+    # valores = ReadFilesTxt('CalibrationCam/distortioncoefficient.txt')
+    # distortioncoefficient = np.array(valores).reshape((1, 5))
+    # --------------------------------------------------------------------------
+    
     # projectionMatrix = np.reshape(params, (3, 4))
     return intrinsicParameters, distortioncoefficient
 
@@ -445,6 +477,7 @@ def main():
 
     intrinsicParameters, distortioncoefficient = LoadCalibrationCamara()
 
+    CaptureNewKittiFrame()
     CapturedVideo = LoadVideo()
     firstFrame, prevFrameCanny = CaptureNewFrame(CapturedVideo)
     prevCorners = DetectCorners(prevFrameCanny)
@@ -485,9 +518,9 @@ def main():
             goodCorners, goodOldCorners, intrinsicParameters)
 
         # Output Finish
-        if(CountMedia > 200):
-            cameraMotion, cameraPosition = UpdateCameraMotion(
-                relativeRotation, relativeTranslation, prevCameraMotion, prevCameraPosition)
+        # if(CountMedia > 200):
+        cameraMotion, cameraPosition = UpdateCameraMotion(
+            relativeRotation, relativeTranslation, prevCameraMotion, prevCameraPosition)
 
         if prevCorners is not None:
             textOnFrame.append([frameMask, "fps", round(fps, 2)])
@@ -512,7 +545,7 @@ def main():
         fpsMedia = fpsMedia + fps
         cornersMedia += len(Corners)
         textOnFrame = []
-        cv2.waitKey(5)
+        cv2.waitKey(10)
     fpsMedia = fpsMedia / CountMedia
     cornersMedia = cornersMedia / CountMedia
     print(f"\nFrames por segundo: {fpsMedia}\n")

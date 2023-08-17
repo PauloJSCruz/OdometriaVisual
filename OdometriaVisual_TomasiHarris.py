@@ -11,7 +11,6 @@ import logging
 # endregion
 SaveImage = False
 
-
 # region save images
 # Flag para guardar as imagens, se false apenas mostra a imagem final
 DataTimeNow = datetime.now()
@@ -24,8 +23,6 @@ fig, plotsFinish = plt.subplots(2, 2)
 # Remove o subplot vazio em plots[1, 2]
 fig.delaxes(plotsFinish[1, 1])
 
-# fig2, plots2 = plt.subplots(2, 2, dpi=300)
-
 # Configuração básica do log
 OutputFolderDataLogger = f'DataLogger/DataLogger_{DataTimeNow.strftime("%d.%m.%Y")}'
 os.makedirs(OutputFolderDataLogger, exist_ok=True)
@@ -34,7 +31,7 @@ logging.basicConfig(filename=f'{OutputFolderDataLogger}/dataLogger_{DataTimeNow.
 # Criando um objeto de log
 dataLogger = logging.getLogger('dataLogger')
 
-
+# region Not Used
 class LinearModel:
     def __init__(self):
         self.slope = 0
@@ -52,21 +49,8 @@ class LinearModel:
         return abs(y - expected_y)
 
 
-def PrintOnFrame(Frame, texto, valor, pos):
-    # Adicione texto ao frame
-    texto = texto + ": " + str(valor)
-    posicao = pos  # Posição do texto no frame
-    fonte = cv2.FONT_HERSHEY_SIMPLEX  # Estilo da fonte
-    escala = 1  # Escala do texto
-    cor = (255, 255, 0)  # Cor do texto (verde no exemplo)
-    espessura = 2  # Espessura da linha do texto
-
-    cv2.putText(Frame, texto, posicao, fonte, escala, cor, espessura)
-
 # region Print Ransac
-
-
-def RansacPrint(frame, Corners):
+def RansacPrint(frame, newCorners):
     # region Definir os parâmetros para o algoritmo RANSAC
     numOfCoordinatesMin = 10  # Número mínimo de pontos para ajustar o modelo
     k = 100  # Número de iterações do RANSAC
@@ -78,11 +62,10 @@ def RansacPrint(frame, Corners):
     linearModel = LinearModel()
 
     # Converter os pontos em um formato adequado para o RANSAC
-    data = [(point[0][0], point[0][1]) for point in Corners]
+    data = [(point[0][0], point[0][1]) for point in newCorners]
 
     # Executar o algoritmo RANSAC
-    bestModel, bestConsensusSet = Ransac(
-        data, linearModel, numOfCoordinatesMin, k, distanceToConsiderInlier, minInlinersForAccept)
+    bestModel, bestConsensusSet = Ransac(data, linearModel, numOfCoordinatesMin, k, distanceToConsiderInlier, minInlinersForAccept)
 
     if bestModel is not None:
         x = np.array([point[0] for point in bestConsensusSet])
@@ -123,21 +106,6 @@ def DrawTracks(frame, mask, goodNew, goodOld, color):
 # endregion
 
 
-def LoadVideo():
-    # region Load Video and path for save image
-    # VideoPath = "Recursos/VideoCorredor.mp4"
-    # VideoPath = "Recursos/VideoVoltaCompleta.mp4"
-    # videoPath = "Recursos/Robotica1080.mp4"
-    videoPath = "Recursos/KittiVideo.mp4"
-    return cv2.VideoCapture(videoPath)
-    # # CapturedVideo = cv2.VideoCapture(0)    # Live
-    # # Verificar se o video foi carregado corretamente
-    # if not CapturedVideo.isOpened():
-    #     print("Erro ao abrir o vídeo.")
-    #     exit()
-    # endregion
-
-
 def ReadFilesTxt(file):
     with open(file, 'r') as f:
         linhas = f.readlines()
@@ -155,15 +123,11 @@ def ReadFilesTxt(file):
             valores.extend(map(float, elementos))
     return valores
 
-# Not Used
-
 
 def CortarMetadeInferior(frame):
     altura, largura, _ = frame.shape
     metade_inferior = frame[altura//2:altura, :]
     return metade_inferior
-
-# Not Used
 
 
 def Ransac(data, model, numOfCoordinatesMin, k, distanceToConsiderInlier, minInlinersForAccept):
@@ -193,34 +157,34 @@ def Ransac(data, model, numOfCoordinatesMin, k, distanceToConsiderInlier, minInl
     return bestModel, bestConsensusSet
 
 
-def CaptureNewFrame(CapturedVideo):
-    # region Frame
-    # Read a frame from the video
-    CaptureState, frame = CapturedVideo.read()
-    if not CaptureState:
-        CapturedVideo.release()
-        cv2.destroyAllWindows()
-        frame = []
-        frameCanny = []
-        return frame, frameCanny
+def FrameSidebySide(prevFrame, frame, prevDetectedCorners, trackedCorners):
+    # Teste
+    # Definir a largura e altura desejadas do frame
+    FrameWidth = 1680
+    FrameHeight = 700
+    combined_frame = cv2.hconcat((frame, prevFrame))
+    # Desenhar uma linha entre os pontos nos quadros atual e anterior
+    if prevDetectedCorners is not None:
+        for i in range(len(trackedCorners)):
+            prev_pt = tuple(map(int, prevDetectedCorners[i].ravel()))
+            current_pt = tuple(map(int, trackedCorners[i].ravel()))
+            # Gerar uma cor RGB aleatória
+            color = tuple(np.random.randint(0, 255, 3).tolist())
+            # Desenhar a linha com a cor aleatória no quadro combinado
+            cv2.line(combined_frame, prev_pt, (current_pt[0] + prevFrame.shape[1], current_pt[1]), color, 1)
+            # Desenhar círculos sem preenchimento nas extremidades da linha
+            cv2.circle(combined_frame, prev_pt, 5, color, -1)
+            cv2.circle(combined_frame, (current_pt[0] + prevFrame.shape[1], current_pt[1]), 5, color, -1)
 
-    # Frame = CortarMetadeInferior(Frame)
-
-    # endregion
-
-    # region Preprocessing
-    # Convert Frame RGB on Gray scale
-    frameGray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-
-    # Applying the canny algorithm
-    frameCanny = cv2.Canny(frameGray, 250, 255, None, 3)
-    # endregion
-
-    return frame, frameCanny
+            # Rodar e Redimensionar o frame para a largura e altura desejadas
+            combined_frame = cv2.resize(combined_frame, (FrameWidth, FrameHeight))
+            cv2.imshow('Combined Frames', combined_frame)
+    # 
+# endregion
 
 
 def CaptureNewKittiFrame():
-    imagesDir = "Recursos\KITTI\image_l"
+    imagesDir = "Recursos\image_l"
     listImages = sorted(os.listdir(imagesDir))
     # Ler Primeira imagem para obter as dimensões
     firstImage = cv2.imread(os.path.join(imagesDir, listImages[0]))
@@ -250,101 +214,194 @@ def DisplayFrame(textOnFrame):
     cv2.imshow('frame', frame)
 
 
+def PrintOnFrame(Frame, texto, valor, pos):
+    # Adicione texto ao frame
+    texto = texto + ": " + str(valor)
+    posicao = pos  # Posição do texto no frame
+    fonte = cv2.FONT_HERSHEY_SIMPLEX  # Estilo da fonte
+    escala = 1  # Escala do texto
+    cor = (255, 255, 0)  # Cor do texto (verde no exemplo)
+    espessura = 2  # Espessura da linha do texto
+
+    cv2.putText(Frame, texto, posicao, fonte, escala, cor, espessura)
+
+
+def LoadVideo():
+    # region Load Video and path for save image
+    # VideoPath = "Recursos/VideoCorredor.mp4"
+    # VideoPath = "Recursos/VideoVoltaCompleta.mp4"
+    # videoPath = "Recursos/Robotica1080.mp4"    
+    videoPath = "Recursos/KittiVideo_curva.mp4"
+    # videoPath = "Recursos/KittiVideo_reta.mp4"    
+    # videoPath = "Recursos/KittiVideo_percLongo.mp4"
+    dataLogger.info(f'Video: {videoPath}')    
+    return cv2.VideoCapture(videoPath)
+    # # CapturedVideo = cv2.VideoCapture(0)    # Live
+    # # Verificar se o video foi carregado corretamente
+    # if not CapturedVideo.isOpened():
+    #     print("Erro ao abrir o vídeo.")
+    #     exit()
+    # endregion
+
+
+def CaptureNewFrame(CapturedVideo):
+    # region Frame
+    # Read a frame from the video
+    CaptureState, frame = CapturedVideo.read()
+    if not CaptureState:
+        CapturedVideo.release()
+        cv2.destroyAllWindows()
+        frame = []
+        frameCanny = []
+        return frame, frameCanny
+
+    # Frame = CortarMetadeInferior(Frame)
+
+    # endregion
+
+    # region Preprocessing
+    # Convert Frame RGB on Gray scale
+    frameGray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+    # Applying the canny algorithm
+    # frameCanny = cv2.Canny(frameGray, 250, 255, None, 3)
+    # endregion
+        
+    frameCanny =  frameGray  
+    # # Aplique o filtro Gaussian Blur
+    # # Defina o tamanho do kernel do filtro (deve ser ímpar)
+    # tamanho_kernel = (5, 5)
+    # desvio_padrao = 15  # Valor maior para mais desfoque
+    # frameCanny = cv2.GaussianBlur(frameGray, tamanho_kernel, desvio_padrao)
+
+    # cv2.imshow('Imagem Original', frameGray)
+    # cv2.imshow('Imagem Desfocada', frameCanny)
+
+    return frame, frameCanny
+
+
 def DetectCorners(frameCanny):
     # region Detetor de cantos de Shi-Tomasi
     cornersDetected = []
-    # region Parâmetros do detector de cantos Shi-Tomasi
-    ShiTomasiParams = dict(maxCorners=500,
+    # # region Parâmetros do detector de cantos Shi-Tomasi
+    ShiTomasiParams = dict(maxCorners=1000,
                            qualityLevel=0.1,
                            minDistance=50,
                            blockSize=7)
+    # # endregion
+
+    # region Parâmetros do detector de cantos Shi-Tomasi
+    # ShiTomasiParams = dict(maxCorners=2000,
+    #                        qualityLevel=0.2,
+    #                        minDistance=25,
+    #                        blockSize=7)
     # endregion
 
-    cornersDetected = cv2.goodFeaturesToTrack(
-        frameCanny, mask=None, **ShiTomasiParams, useHarrisDetector=True, k=0.04)
+    cornersDetected = cv2.goodFeaturesToTrack(frameCanny, mask=None, **ShiTomasiParams, useHarrisDetector=True, k=0.04)
     
     return cornersDetected
-# endregion
+    # endregion
 
 
-def TrackFeatures(prevFrameGray, FrameGray, prevCorners):
+def TrackFeatures(prevFrameGray, FrameGray, prevTrackedCorners):
+    matchCorners = {}
     # region Parameters for lucas kanade optical flow
     LucasKanadeParams = dict(winSize=(25, 25),
                              maxLevel=2,
                              criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.01))
     # endregion
-    # Create some random colors
-    color = np.random.randint(0, 255, (100, 3))
-
+    
     # Calcular o fluxo ótico usando o método Lucas-Kanade
-    # corners, status, _ = cv2.calcOpticalFlowPyrLK(prevFrameGray, FrameGray, prevCorners, None, **LucasKanadeParams)
+    newCorners, status, _err = cv2.calcOpticalFlowPyrLK( prevFrameGray, FrameGray, prevTrackedCorners, None, **LucasKanadeParams)
+    # Save only newCorners that have done match
+    trackedCorners = newCorners[status[:, 0] == 1]
+    goodOldCorners = prevTrackedCorners[status[:, 0] == 1]
+    differentiationCorners = []
 
-    p0 = prevCorners.reshape(-1, 1, 2)
-    corners, status, _err = cv2.calcOpticalFlowPyrLK(
-        prevFrameGray, FrameGray, p0, None, **LucasKanadeParams)
-    p0r, status, _err = cv2.calcOpticalFlowPyrLK(
-        FrameGray, prevFrameGray, corners, None, **LucasKanadeParams)
-    d = abs(p0-p0r).reshape(-1, 2).max(-1)
-    good = d < 1
+    for i in range(len(trackedCorners)):
+        differentiationCorners.append(trackedCorners[i] - goodOldCorners[i])
+        matchCorners[i] = {
+            "NewCanto": trackedCorners[i].tolist(),
+            "PrevCanto": goodOldCorners[i].tolist(),
+            "Differentiation": trackedCorners[i] - goodOldCorners[i]
+        }
+    for chave, valor in matchCorners.items():
+        dataLogger.info(f'{chave}: {valor}')
 
-    new_trajectories = []
-    # Manter apenas os cantos que foram seguidos com sucesso
-    # for trajectory, (x, y), good_flag in zip(goodCorners, corners.reshape(-1, 2), good):
-    #     if not good_flag:
-    #             continue
-    #     trajectory.append((x, y))
-    #     if len(trajectory) > 40:
-    #         del trajectory[0]
-    #     new_trajectories.append(trajectory)
+    # Inicialize os arrays para armazenar os pontos x e y
+    pointsX = []
+    pointsY = []
 
-    goodCorners = corners[status[:, 0] == 1]
-    goodOldCorners = prevCorners[status[:, 0] == 1]
+    # Itere sobre a lista differentiationCorners e extraia os pontos x e y
+    for array in differentiationCorners:
+        x = array[:, 0]  # Extrai a primeira coluna (x) do array
+        y = array[:, 1]  # Extrai a segunda coluna (y) do array
+        pointsX.extend(x)  # Adiciona os pontos x ao array points_x
+        pointsY.extend(y)  # Adiciona os pontos y ao array points_y
 
-    if corners is None:
+    # Converta os arrays para NumPy arrays se necessário
+    pointsX = np.array(pointsX)
+    pointsY = np.array(pointsY)
+
+    # Criar um array para os índices dos pontos, para que possamos usá-los como identificadores
+    indices = np.arange(len(pointsX))
+    indices = np.arange(len(pointsY))
+
+    
+    # plt.ylabel('Eixo Y do Plot 2')
+    # # Plot dos pontos x e y em um gráfico de dispersão
+    # plt.scatter(indices, pointsX, label='Pontos X', color='green', marker='.')
+    # plt.scatter(indices, pointsY, label='Pontos Y', color='red', marker='x')
+
+    # # Configurações do gráfico
+    # plt.title('Gráfico de Dispersão dos Pontos X e Y')
+    # plt.xlabel('Índices dos Pontos')
+    # plt.ylabel('Valores dos Pontos')
+    # plt.legend()
+
+    # # Exibir o gráfico
+    # plt.show()
+    # plt.pause(0.1)
+
+    if newCorners is None:
         return None
+    
+    
 
-    dataLogger.info(f'\n goodOldCorners \n {goodOldCorners}')
-    dataLogger.info(f'\n goodCorners \n {goodCorners}')
-    return corners, goodCorners, goodOldCorners
+    # dataLogger.info(f'\n goodOldCorners {goodOldCorners}')
+    # dataLogger.info(f'\n trackedCorners {trackedCorners}')
+    return trackedCorners, goodOldCorners
 
 
-def MatrizFundamental(goodCorners, goodOldCorners):
-    fundamentalMatrix, mask = cv2.findFundamentalMat(
-        goodCorners, goodOldCorners, cv2.FM_RANSAC)
+def MatrizFundamental(trackedCorners, goodOldCorners):
+    fundamentalMatrix, mask = cv2.findFundamentalMat(trackedCorners, goodOldCorners, cv2.FM_RANSAC)
 
     # Refinar a matriz fundamental
-    goodCorners = goodCorners[mask.ravel() == 1]
+    trackedCorners = trackedCorners[mask.ravel() == 1]
     goodOldCorners = goodOldCorners[mask.ravel() == 1]
-    fundamentalMatrix, _ = cv2.findFundamentalMat(
-        goodCorners, goodOldCorners, cv2.FM_8POINT)
-    fundamentalMatrix = cv2.correctMatches(
-        fundamentalMatrix, goodCorners.T, goodOldCorners.T)
+    fundamentalMatrix, _ = cv2.findFundamentalMat(   trackedCorners, goodOldCorners, cv2.FM_8POINT)
+    fundamentalMatrix = cv2.correctMatches(   fundamentalMatrix, trackedCorners.T, goodOldCorners.T)
 
     dataLogger.info(f'\n fundamentalMatrix \n {fundamentalMatrix}')
     return fundamentalMatrix
 
 
-def MatrizEssencial(goodCorners, goodOldCorners, intrinsicParameters):
+def MatrizEssencial(trackedCorners, goodOldCorners, intrinsicParameters):
 
-    matrizEssencial, mask = cv2.findEssentialMat(goodOldCorners, goodCorners, intrinsicParameters)
+    matrizEssencial, mask = cv2.findEssentialMat(goodOldCorners, trackedCorners, intrinsicParameters, method=cv2.RANSAC, prob=0.999, threshold=1.0)
 
 
-    essencialMatrixRotation, essencialMatrixTranslation = DecomporMatrizEssencial( matrizEssencial, goodOldCorners, goodCorners, intrinsicParameters)
+    essencialMatrixRotation, essencialMatrixTranslation = DecomporMatrizEssencial( matrizEssencial, goodOldCorners, trackedCorners, intrinsicParameters)
 
     dataLogger.info(f'\n matrizEssencial \n {matrizEssencial}')
     dataLogger.info(f'\n rotation \n {essencialMatrixRotation}')
-    dataLogger.info(
-        f'\n essencialMatrixTranslation \n {essencialMatrixTranslation}')
+    dataLogger.info(f'\n essencialMatrixTranslation \n {essencialMatrixTranslation}')
 
     return essencialMatrixRotation, essencialMatrixTranslation
 
 
-def DecomporMatrizEssencial(essentialMatrix, goodOldCorners, goodCorners, cameraMatrix):
+def DecomporMatrizEssencial(essentialMatrix, goodOldCorners, trackedCorners, cameraMatrix):
     # Recupera as matrizes de rotação e translação da matriz essencial
-    _, breakDownRotation, breakDownTranslation, _ = cv2.recoverPose( essentialMatrix, goodOldCorners, goodCorners, cameraMatrix)
-
-    dataLogger.info(f'\n breakDownRotation \n {breakDownRotation}')
-    dataLogger.info(f'\n breakDownTranslation \n {breakDownTranslation}')
+    _, breakDownRotation, breakDownTranslation, _ = cv2.recoverPose( essentialMatrix, goodOldCorners, trackedCorners, cameraMatrix)
     return breakDownRotation, breakDownTranslation
 
 
@@ -362,7 +419,6 @@ def UpdateCameraMotion(R, T, prevCameraMotion, prevCameraPosition):
     # plt.subplots_adjust(hspace=0.01)
 
     plotTrajectory = plotsFinish[0, 0]
-    plotMotion3D = plotsFinish[1, 1]
     # Plot da cameraPosition
     plotTrajectory.set_xlabel('X')
     plotTrajectory.set_ylabel('Y')
@@ -371,23 +427,25 @@ def UpdateCameraMotion(R, T, prevCameraMotion, prevCameraPosition):
     plotTrajectory.plot(cameraPosition[0], cameraPosition[1], 'ro')
 
     # Plot da cameraMotion
+    # region plot 3D
+    # # Adiciona o subplot 3D em plots[1, 2]
+    # plotMotion3D = plotsFinish[1, 1]
+    # plotMotion3D = fig.add_subplot(2, 2, 4, projection='3d')
+    # plotMotion3D.quiver(
+    #     0, 0, 0, cameraMotion[0, 3], cameraMotion[1, 3], cameraMotion[2, 3])
+    # plotMotion3D.set_xlim([-1, 1])
+    # plotMotion3D.set_ylim([-1, 1])
+    # plotMotion3D.set_zlim([-1, 1])
 
-    # Adiciona o subplot 3D em plots[1, 2]
-    plotMotion3D = fig.add_subplot(2, 2, 4, projection='3d')
-    plotMotion3D.quiver(
-        0, 0, 0, cameraMotion[0, 3], cameraMotion[1, 3], cameraMotion[2, 3])
-    plotMotion3D.set_xlim([-1, 1])
-    plotMotion3D.set_ylim([-1, 1])
-    plotMotion3D.set_zlim([-1, 1])
-
-    plotMotion3D.set_xlabel('X')
-    plotMotion3D.set_ylabel('Y')
-    plotMotion3D.set_zlabel('Z')
-    plotMotion3D.set_title('Plot Camera Motion')
+    # plotMotion3D.set_xlabel('X')
+    # plotMotion3D.set_ylabel('Y')
+    # plotMotion3D.set_zlabel('Z')
+    # plotMotion3D.set_title('Plot Camera Motion')
+    # endregion
 
     plt.tight_layout()
     plt.show()
-    plt.pause(0.01)
+    plt.pause(0.1)
 
     return cameraMotion, cameraPosition
 
@@ -410,146 +468,226 @@ def PlotFrames(frames):
     plt.savefig(
         f'{OutputFolder}{DataTimeNow.strftime("%d.%m.%Y_%H.%M.%S")}-5Plots.png', bbox_inches='tight')
     # plt.show(block=False)
-    plt.pause(0.001)
+    plt.pause(0.1)
     for ax in axsFrames:
-        ax.cla()
+        ax.clear()
 
 
 def LoadCalibrationCamara():
-    
-    with open('CalibrationCam/calib.txt') as f:
-        params = np.fromstring(f.readline(), dtype=np.float64, sep=' ')
-        distortioncoefficient = np.reshape(params, (3,4))
-        intrinsicParameters = distortioncoefficient[0:3, 0:3]
+    projectionMatrix = []
+    with open('CalibrationCam/calib_reta.txt') as fileCalib:
+        for line in fileCalib: 
+            elementos = np.fromstring(line, dtype=np.float64, sep=' ')
+            matriz = np.reshape(elementos, (3,4))
+            projectionMatrix.append(matriz)
 
-    # -------------------------------------------------------------------------
-    # valores = ReadFilesTxt('CalibrationCam/cameramatrix.txt')
-    # # Converta a lista de valores em uma matriz NumPy
-    # intrinsicParameters = np.array(valores).reshape((3, 3))
+        for i, matriz in enumerate(projectionMatrix):
+            print(f"Matriz P{i}:")
+            print(projectionMatrix)
 
-    # valores = ReadFilesTxt('CalibrationCam/distortioncoefficient.txt')
-    # distortioncoefficient = np.array(valores).reshape((1, 5))
-    # --------------------------------------------------------------------------
-    
-    # projectionMatrix = np.reshape(params, (3, 4))
-    return intrinsicParameters, distortioncoefficient
+        # [: -> todas as linhas da matriz , :3 -> primeiras três colunas da matriz]
+        intrinsicParameters = projectionMatrix[0][:, :3]
+        print(intrinsicParameters)
+
+    dataLogger.info(f'\n intrinsicParameters \n {intrinsicParameters}')
+    # dataLogger.info(f'\n distortioncoefficient \n {distortioncoefficient}')
+    return intrinsicParameters
 
 
-def Init():
+##############################################################################################################################################
 
-    #     # region save images
-    #     # Flag para guardar as imagens, se false apenas mostra a imagem final
-    #     if SaveImage is True:
-    #         DataTimeNow = datetime.now()
-    #         OutputFolder = f'2 - OutputOdometria/{DataTimeNow.strftime("%d.%m.%Y_%H.%M.%S")}/'
-    #         os.makedirs(OutputFolder, exist_ok=True)
-    #     # endregion
+# Initialize variables for camera motion and position
+prevCameraMotion = np.eye(4)
+prevCameraPosition = np.zeros(3)
 
-    #     fig, plotsFinish = plt.subplots(2, 2)
-    #     # Remove o subplot vazio em plots[1, 2]
-    #     fig.delaxes(plotsFinish[1, 1])
+# Function to update camera motion and position
+def updateCameraMotionPosition(relativeRotation, relativeTranslation):
+    global prevCameraMotion, prevCameraPosition
 
-    #     fig2, plots2 = plt.subplots(2, 2, dpi=300)
+    # Construct the camera pose matrix from relative rotation and translation
+    pose_matrix = np.eye(4)
+    pose_matrix[:3, :3] = relativeRotation
+    pose_matrix[:3, 3] = relativeTranslation.flatten()  # Flatten the (3, 1) array to (3,)
 
-    #     # Configuração básica do log
-    #     logging.basicConfig(filename=f'dataLogger_{DataTimeNow.strftime("%d.%m.%Y_%H.%M.%S")}.txt', level=logging.DEBUG)
-    #     # Criando um objeto de log
-    #     dataLogger = logging.getLogger('dataLogger')
+    # Update the camera motion by concatenating with the relative pose matrix
+    cameraMotion = np.dot(prevCameraMotion, pose_matrix)
 
-    #     return DataTimeNow, OutputFolder, plotsFinish, dataLogger
-    return 1
+    # Update the camera position using the previous camera position and motion
+    cameraPosition = prevCameraPosition + np.dot(prevCameraMotion[:3, :3], relativeTranslation.flatten())  # Flatten the (3, 1) array to (3,)
 
+    # Update the previous camera motion and position with the new values
+    prevCameraMotion = cameraMotion
+    prevCameraPosition = cameraPosition
+
+    return cameraMotion, cameraPosition
+
+# Function to plot the trajectory
+def plotTrajectory(trajectory):
+    x_values = [pos[0] for pos in trajectory]
+    y_values = [pos[1] for pos in trajectory]
+
+    plt.figure()
+    plt.plot(x_values, y_values, 'b-')
+    plt.scatter(x_values, y_values, color='red', label='Camera Positions')
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.title('Camera Trajectory')
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+def DrawTrajectory(trajectory, cameraPosition):
+    # Criar um canvas em branco
+    image = np.ones((700, 1024, 3), dtype=np.uint8) * 255  # Canvas branco
+     # Convert the camera positions to pixel coordinates on the canvas
+    canvas_width, canvas_height = image.shape[1], image.shape[0]
+    center_x, center_y = int(canvas_width / 2), int(canvas_height / 2)
+    scaled_trajectory = [(center_x + int(pos[0]), center_y - int(pos[1])) for pos in trajectory]
+
+    # Draw the trajectory on the canvas as a line
+    for i in range(1, len(scaled_trajectory)):
+        cv2.line(image, scaled_trajectory[i - 1], scaled_trajectory[i], (0, 0, 255), 2)
+
+    # Draw the current position as a red circle
+    cv2.circle(image, (center_x + int(cameraPosition[0]), center_y - int(cameraPosition[1])), 5, (0, 255, 0), -1)
+
+    # Add text with X, Y, and Z coordinates at the current position
+    text = f"X: {cameraPosition[0]:.2f}, Y: {cameraPosition[1]:.2f}, Z: {cameraPosition[2]:.2f}"
+    text_position = (center_x + int(cameraPosition[0]), center_y - int(cameraPosition[1]) - 20)
+    cv2.putText(image, text, text_position, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+    # # Draw the camera positions as red circles on the image
+    # for position in trajectory:
+    #     cv2.circle(image, (int(position[0]), int(position[1])), 5, (0, 0, 255), -1)
+
+    # # Draw the current camera position as a green circle on the image
+    # cv2.circle(image, (int(cameraPosition[0]), int(cameraPosition[1])), 5, (0, 255, 0), -1)
+
+    cv2.imshow('Frame with Trajectory', image)
+
+    return image
+
+##############################################################################################################################################
 
 def main():
     # DataTimeNow, OutputFolder, plotsFinish, dataLogger = Init()
     fps = 0
     fpsMedia = 0
-    cornersMedia = 0
+    cornersAverage = 0
     CountFrames = 0
-    CountMedia = 0
-    ResetCorners = 25
+    countIterations = 0
+    ResetCorners = 1
     textOnFrame = []
-    Corners = []
+
+    # Initialize an empty list to store the camera positions for constructing the trajectory
+    cameraTrajectory = [[0, 0,  0]]
 
     prevCameraMotion = np.zeros((4, 3))
     prevCameraMotion[:3, :3] = np.eye(3)
     prevCameraPosition = np.zeros(3)
 
-    intrinsicParameters, distortioncoefficient = LoadCalibrationCamara()
+    intrinsicParameters = LoadCalibrationCamara()
 
-    CaptureNewKittiFrame()
+    # CaptureNewKittiFrame()
     CapturedVideo = LoadVideo()
-    firstFrame, prevFrameCanny = CaptureNewFrame(CapturedVideo)
-    prevCorners = DetectCorners(prevFrameCanny)
+
+    # 1st Frame
+    firstFrame, secondFrameCanny = CaptureNewFrame(CapturedVideo)   
+    CountFrames += 1
+    prevDetectedCorners = DetectCorners(secondFrameCanny)
     mask = np.zeros_like(firstFrame)
+    # Process 2nd Frame
+    frame, prevFrameCanny = CaptureNewFrame(CapturedVideo)
+    frameCanny =  prevFrameCanny.copy()
+    CountFrames += 1
+    trackedCorners, goodOldCorners = TrackFeatures(secondFrameCanny, prevFrameCanny, prevDetectedCorners)
 
     while True:
-        CountMedia += 1
-        dataLogger.warning(f'\n Iteration: {CountMedia}')
+        countIterations += 1
+        CountFrames     += 1
+        dataLogger.warning(f'Iteration: {countIterations}')
         # start time to calculate FPS
         start = time.time()
-        frame, frameCanny = CaptureNewFrame(CapturedVideo)
-        if len(frame) == 0:
-            break
-        CountFrames = CountFrames + 1
 
-        Corners, goodCorners, goodOldCorners = TrackFeatures(
-            prevFrameCanny, frameCanny, prevCorners)
+        # Core Code
+        if(countIterations > 1):        
+            frame, frameCanny = CaptureNewFrame(CapturedVideo)
+            # Stop programe when video have finished
+            if len(frame) == 0:
+                break
 
-        if Corners is None or len(Corners) < 10 or CountFrames >= ResetCorners:
-            CountFrames = 0
-            prevCorners = DetectCorners(prevFrameCanny)
+            trackedCorners, goodOldCorners = TrackFeatures(prevFrameCanny, frameCanny, prevDetectedCorners)
 
-            while prevCorners is None:
-                frame, frameCanny = CaptureNewFrame(CapturedVideo)
-                prevCorners = DetectCorners(frameCanny)
-            Corners, goodCorners, goodOldCorners = TrackFeatures(
-                prevFrameCanny, frameCanny, prevCorners)
-            mask = np.zeros_like(frame)
+            # FrameSidebySide(prevFrame, frame, goodOldCorners, trackedCorners)
 
-        frameMask = DrawTracks(frame, mask, goodCorners,
-                               goodOldCorners, color=None)
+            # Rastriar novos cantos no caso de serem inferiores ao limite minimo, ou no caso do contador de frames atignir um valor predeterminado
+            if trackedCorners is None or len(trackedCorners) < 10 or CountFrames >= ResetCorners:
+            # if trackedCorners is None or len(trackedCorners) < 10:
+                CountFrames = 0
+                prevDetectedCorners = DetectCorners(prevFrameCanny)
+                while prevDetectedCorners is None:
+                    frame, frameCanny = CaptureNewFrame(CapturedVideo)
+                    prevDetectedCorners = DetectCorners(frameCanny)
+                trackedCorners, goodOldCorners = TrackFeatures(prevFrameCanny, frameCanny, prevDetectedCorners)
+                mask = np.zeros_like(frame)
+            
 
-        # Obter a matriz Fundamental
-        # matrizFundamental = MatrizFundamental(goodCorners, goodOldCorners)
+        frameMask = DrawTracks(frame, mask, trackedCorners, goodOldCorners, color=None)
 
         # Obter a matriz Essencial
-        relativeRotation, relativeTranslation = MatrizEssencial(
-            goodCorners, goodOldCorners, intrinsicParameters)
+        relativeRotation, relativeTranslation = MatrizEssencial(trackedCorners, goodOldCorners, intrinsicParameters)
+
+        # Update camera motion and position
+        cameraMotion, cameraPosition = updateCameraMotionPosition(relativeRotation, relativeTranslation)
+
+        # Append the current camera position to the cameraTrajectory list
+        cameraTrajectory.append(cameraPosition)
+
+        # Display the trajectory and camera positions on the frame
+        DrawTrajectory(cameraTrajectory, cameraPosition)
+        #######################################################################################################################################
+        
 
         # Output Finish
-        # if(CountMedia > 200):
-        cameraMotion, cameraPosition = UpdateCameraMotion(
-            relativeRotation, relativeTranslation, prevCameraMotion, prevCameraPosition)
+        # if(countIterations > 200):
+        # cameraMotion, cameraPosition = UpdateCameraMotion(
+        #     relativeRotation, relativeTranslation, prevCameraMotion, prevCameraPosition)
 
-        if prevCorners is not None:
-            textOnFrame.append([frameMask, "fps", round(fps, 2)])
-            textOnFrame.append([frameMask, "Corners", len(Corners)])
-            textOnFrame.append(
-                [frameMask, f"CountFrames {ResetCorners}", CountFrames])
+
+        
+        # Print indications on frame
+        if prevDetectedCorners is not None:
+            textOnFrame.append([frameMask, "FPS", round(fps, 2)])
+            textOnFrame.append([frameMask, "FrameId", len(trackedCorners)])
+            textOnFrame.append([frameMask, "trackedCorners", len(trackedCorners)])
+            textOnFrame.append([frameMask, f"CountFrames {ResetCorners}", CountFrames])
             DisplayFrame(textOnFrame)
+            # Reset Text on Frame
+            textOnFrame = []
 
+        # Update de previous variables
         # prevCameraMotion = cameraMotion
         # prevCameraPosition = cameraPosition
+        prevFrame = frame.copy()
         prevFrameCanny = frameCanny.copy()
-        prevCorners = goodCorners
-
-        # Data logger
-        dataLogger.info(f'\n prevCorners \n {prevCorners}')
-        dataLogger.info(f'\n Corners \n {Corners}')
-
-        # End time
-        end = time.time()
-        # calculate the FPS for current frame detection
+        prevDetectedCorners = trackedCorners.copy()
+                
+        # calculate the FPS
+        # # End time
+        end = time.time() 
         fps = 1 / (end-start)
         fpsMedia = fpsMedia + fps
-        cornersMedia += len(Corners)
-        textOnFrame = []
+        cornersAverage += len(trackedCorners)
         cv2.waitKey(10)
-    fpsMedia = fpsMedia / CountMedia
-    cornersMedia = cornersMedia / CountMedia
+
+    # Plot the camera trajectory
+    plotTrajectory(cameraTrajectory)
+
+    # Calculate the average
+    fpsMedia /= countIterations
+    cornersAverage /= countIterations
     print(f"\nFrames por segundo: {fpsMedia}\n")
-    print(f"Corners media: {cornersMedia}\n")
+    print(f"newCorners media: {cornersAverage}\n")
 
 
 if __name__ == '__main__':

@@ -1,0 +1,1 @@
+2023-10-07 20:01:33,945 - matplotlib.pyplot - DEBUG - Loaded backend tkagg version 8.6.

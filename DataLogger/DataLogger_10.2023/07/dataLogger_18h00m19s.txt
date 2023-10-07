@@ -1,0 +1,6 @@
+2023-10-07 18:00:19,214 - dataLogger - INFO - 
+ intrinsicParameters 
+ [[718.856    0.     607.1928]
+ [  0.     718.856  185.2157]
+ [  0.       0.       1.    ]]
+2023-10-07 18:00:19,246 - matplotlib.pyplot - DEBUG - Loaded backend tkagg version 8.6.

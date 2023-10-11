@@ -69,26 +69,28 @@ class Camera:
             return -1
     
     def CreateVideoWithDataSetFrames(self, numFrames):
-        numFramesVideo = numFrames
-        imagesDir = "Recursos/00/image_2"
-        listImages = sorted(os.listdir(imagesDir))
-        listImages = listImages[:numFramesVideo]
-        # Ler Primeira imagem para obter as dimensões
-        firstImage = cv2.imread(os.path.join(imagesDir, listImages[0]))
-        height, width, _ = firstImage.shape
-        fps = 30
-        # Criar o objeto VideoWriter
-        videoWrite = cv2.VideoWriter("Recursos/KittiVideo.mp4", cv2.VideoWriter_fourcc('m', 'p', '4', 'v'), fps, (width, height))
-        # Iterar sobre todas as imagnes e gravar no videoWriter
-        for listImage in listImages:
-            image = cv2.imread(os.path.join(imagesDir, listImage))
-            videoWrite.write(image)
-            print(listImage)
-        # Libertar Recursos
-        videoWrite.release()
-        self.log.info('\n Kitti video is ready \n')
+        if os.path.exists("Recursos/KittiVideo.mp4") is False:
+            numFramesVideo = numFrames
+            imagesDir = "Recursos/00/image_2"
+            listImages = sorted(os.listdir(imagesDir))
+            listImages = listImages[:numFramesVideo]
+            # Ler Primeira imagem para obter as dimensões
+            firstImage = cv2.imread(os.path.join(imagesDir, listImages[0]))
+            height, width, _ = firstImage.shape
+            fps = 30
+            # Criar o objeto VideoWriter
+            videoWrite = cv2.VideoWriter("Recursos/KittiVideo.mp4", cv2.VideoWriter_fourcc('m', 'p', '4', 'v'), fps, (width, height))
+            # Iterar sobre todas as imagnes e gravar no videoWriter
+            for listImage in listImages:
+                image = cv2.imread(os.path.join(imagesDir, listImage))
+                videoWrite.write(image)
+                print(listImage)
+            # Libertar Recursos
+            videoWrite.release()
+            self.log.info('\n Kitti video is ready \n')
+        CapturedVideo = self.LoadVideo()
 
-    def Live(self):
+    def LiveCam(self):
         self.frame = cv2.VideoCapture(0) # Live
 
 class GroundTruth:
@@ -162,7 +164,7 @@ class Plots:
         self.ax3d.grid()
 
         self.ax2d.set_xlabel('X')
-        self.ax2d.set_ylabel('Y')
+        self.ax2d.set_ylabel('Z')
         self.ax2d.set_title('2D Camera Trajectory')
         self.numPlots = 0
 

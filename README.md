@@ -1,10 +1,6 @@
 # OdometriaVisual
 
 ## Primeiros passos
-Criar uma pasta chamada "Recursos"
-Adicionar o video "Robotica1080.mp4"
-
-Abrir o fecheiro "OdometriaVisual_TomasiHarris" (com VSCode é mais simples)
 
 ## Imports:
 cv2
@@ -20,5 +16,5 @@ matplotlib.pylab
     F5 -> Selecionar "Python File ...."
 
 ## Versão Python Usada
-    Python 3.11.4
+    Python 3.10.10
     

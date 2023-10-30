@@ -487,10 +487,10 @@ class Trajectory (Plots):
         # A posição e orientação da câmera no instante n é dada por
         # 𝐶𝑛 = 𝑅𝑛,𝑛−1𝐶𝑛−1 + 𝑇𝑛,𝑛−1
 
-        Tk_homogeneous = np.eye(4)
-        Tk_homogeneous[:3, :3] = self.vo.rotationMatrix
-        Tk_homogeneous[:3, 3] = self.vo.translationMatrix.ravel()
-        self.trajectory = self.trajectory @ Tk_homogeneous
+        TkHomogeneous = np.eye(4)
+        TkHomogeneous[:3, :3] = self.vo.rotationMatrix
+        TkHomogeneous[:3, 3] = self.vo.translationMatrix.ravel()
+        self.trajectory = self.trajectory @ TkHomogeneous
         self.allPointsTrajectory.append(self.trajectory)
 
         self.dataLogger.info(f'\n trajectory \n {self.trajectory}')

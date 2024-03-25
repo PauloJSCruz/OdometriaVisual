@@ -9,34 +9,13 @@ import os
 import logging
 from datetime import datetime
 from tqdm import tqdm
+
+import ManualPoints
 # endregion
 
 
-pointsTestImage0 = np.array([[  [284     ,  184    ],
-                                [93     ,   93  ],
-                                [281     ,  113   ],
-                                [436     ,  162   ],
-                                [663     ,  149   ],
-                                [711     ,  137   ],
-                                [730     ,  169   ],
-                                [944     ,  29   ],
-                                [996     ,  85  ],
-                                [1067     , 71   ],
-                                [1128     , 58   ],
-                                [1071     , 153   ]]], dtype=np.float32)
-
-pointsTestImage1 = np.array([[  [278    ,  186   ],
-                                [80    ,   93  ],
-                                [275    ,  114   ],
-                                [437    ,  164   ],
-                                [666    ,  150   ],
-                                [716    ,  137   ],
-                                [735    ,  169   ],
-                                [956    ,  24   ],
-                                [1016    , 81    ],
-                                [1094    , 65    ],
-                                [1162    , 50    ],
-                                [1099    , 151    ]]], dtype=np.float32)
+pointsTestImage0 = ManualPoints.pointsTestImage0
+pointsTestImage1 = ManualPoints.pointsTestImage1
 
 def ConfigDataLogger():
     dataTimeNow = datetime.now()
@@ -54,36 +33,64 @@ class Camera:
     def __init__(self, dataLogger, IndexCamera):
         self.idCamera = IndexCamera
         self.dataLogger = dataLogger
-        self.filePath = f'Recursos/00/image_{self.idCamera}'        
+        self.filePath = f'Recursos/00/image_{self.idCamera}'
+        # self.filePath = f'Recursos/Teste'
         self.idFrame = 0
         self.liveON = False
         self.framesLoaded = []
         self.loadNewFrame = []
         self.intrinsicParameters = []
 
+    # def CalibrationFile(self):
+    #     projectionMatrix = []
+    #     # Save in one list all the files name in this directory
+    #     pathFiles = os.listdir("CalibrationCam")
+    #     file = os.path.join("CalibrationCam", pathFiles[0])
+
+    #     with open(file) as fileCalib:
+    #         for line in fileCalib: 
+    #             elementos = np.fromstring(line, dtype=np.float64, sep=' ')
+    #             matriz = np.reshape(elementos, (3,4))
+    #             projectionMatrix.append(matriz)
+
+    #         for i, matriz in enumerate(projectionMatrix):
+    #             print(f"Matriz P{i}:")
+    #             print(projectionMatrix)
+
+    #         # [: -> todas as linhas da matriz , 0:3 -> primeiras três colunas da matriz]
+    #         self.intrinsicParameters = projectionMatrix[self.idCamera][0:3, 0:3]
+    #         print(self.intrinsicParameters)
+    #         print('\n\n\n\n\n')
+
+    #     self.dataLogger.info(f'\n intrinsicParameters \n {self.intrinsicParameters}')
+    #     # dataLogger.info(f'\n distortioncoefficient \n {distortioncoefficient}')
+
     def CalibrationFile(self):
-        projectionMatrix = []
-        # Save in one list all the files name in this directory
-        pathFiles = os.listdir("CalibrationCam")
-        file = os.path.join("CalibrationCam", pathFiles[0])
+        # Define o caminho para o arquivo de calibração
+        file = "CalibrationCam\calib.txt"
 
-        with open(file) as fileCalib:
-            for line in fileCalib: 
-                elementos = np.fromstring(line, dtype=np.float64, sep=' ')
-                matriz = np.reshape(elementos, (3,4))
-                projectionMatrix.append(matriz)
+        try:
+            with open(file) as fileCalib:
+                for line in fileCalib:
+                    if line.startswith("P0:"):
+                        # Extrai os números da linha, ignorando o identificador "P0:"
+                        elementos = np.fromstring(line[3:], sep=' ', dtype=np.float64)
+                        # Reorganiza os elementos para formar a matriz de projeção 3x4
+                        matriz_projecao = np.reshape(elementos, (3, 4))
+                        # Extrai os parâmetros intrínsecos (as três primeiras colunas da matriz de projeção)
+                        self.intrinsicParameters = matriz_projecao[:, :3]
+                        print("Parâmetros intrínsecos:")
+                        print(self.intrinsicParameters)
+                        break  # Encerra o loop após processar a linha desejada
 
-            for i, matriz in enumerate(projectionMatrix):
-                print(f"Matriz P{i}:")
-                print(projectionMatrix)
+        except FileNotFoundError:
+            print(f"Arquivo não encontrado: {file}")
+            return
 
-            # [: -> todas as linhas da matriz , :3 -> primeiras três colunas da matriz]
-            self.intrinsicParameters = projectionMatrix[self.idCamera][:, :3]
-            print(self.intrinsicParameters)
-            print('\n\n\n\n\n')
-
-        self.dataLogger.info(f'\n intrinsicParameters \n {self.intrinsicParameters}')
+        # Assumindo que self.dataLogger.info é um método válido para registrar informação
+        self.dataLogger.info(f'\nParâmetros Intrínsecos:\n{self.intrinsicParameters}')        
         # dataLogger.info(f'\n distortioncoefficient \n {distortioncoefficient}')
+
 
     def LoadFrames(self, numFrames):
         if self.liveON is False:
@@ -158,13 +165,13 @@ class Camera:
 
                 # Rodar e Redimensionar o frame para a largura e altura desejadas
                 # combined_frame = cv2.resize(combined_frame, (FrameWidth, FrameHeight))
-            cv2.imshow('Combined Frames', combined_frame)
+            # cv2.imshow('Combined Frames', combined_frame)
 
 class GroundTruth:    
     def __init__(self, dataLogger):
         self.posesReaded = pd.read_csv( f'Recursos/data_odometry_poses/dataset/poses/00.txt' , delimiter= ' ' , header= None ) 
         # print ( 'Tamanho do dataframe de pose:' , poses.shape) 
-        print(f'posesReaded: {self.posesReaded.head()}\n')
+        # print(f'posesReaded: {self.posesReaded.head()}\n')
         self.poses = (np.array(self.posesReaded.iloc[0]).reshape((3, 4)))
         
     def GetPose(self, dataLogger, idFrame):
@@ -193,6 +200,9 @@ class VisualOdometry (Camera):
         self.idFrameTracked = 0
            
     def FrameProcess(self, frame):
+        # FrameWidth = 1024
+        # FrameHeight = 700
+        # frame = cv2.resize(frame, (FrameWidth, FrameHeight))
         # Convert Frame RGB on Gray scale
         frameProcessedGray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         # Applying the canny algorithm
@@ -202,9 +212,9 @@ class VisualOdometry (Camera):
 
     def DetectingFutures(self):
         # region Parâmetros do detector de cantos Shi-Tomasi
-        ShiTomasiParams = dict(maxCorners=1000,
-                               qualityLevel=0.2,
-                               minDistance=50,
+        ShiTomasiParams = dict(maxCorners=500,
+                               qualityLevel=0.5,
+                               minDistance=7,
                                blockSize=7)
         # ShiTomasiParams = dict(maxCorners=2000,
         #                        qualityLevel=0.2,
@@ -230,11 +240,40 @@ class VisualOdometry (Camera):
 
         self.dataLogger.info(f'\n featuresDetected ({idfeaturesDetected}) \n {self.featuresDetected[idfeaturesDetected]}')
             
+    def DetectingFuturesFastMethod(self):
+        # Cria o objeto FAST
+        fast = cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True)
+
+        if self.framesLoaded[self.idFrame] is not NULL:
+            # Converte a imagem para escala de cinza
+            frame_gray = cv2.cvtColor(self.framesLoaded[self.idFrame], cv2.COLOR_BGR2GRAY)
+            # Encontra os pontos de interesse usando o detector FAST
+            keypoints = fast.detect(frame_gray, None)
+            
+            # Converte os keypoints para um array numpy
+            keypoints_np = np.array([kp.pt for kp in keypoints], dtype=np.float32)
+            # Adiciona os keypoints detectados à lista de características
+            self.featuresDetected.append(keypoints_np)
+
+            idfeaturesDetected = len(self.featuresDetected) - 1
+
+        if self.idFrame == 0:
+            self.featuresTracked.append(self.featuresDetected[idfeaturesDetected])
+        else:
+            self.featuresTracked[self.idFrame - 1] = self.featuresDetected[idfeaturesDetected]
+
+        self.dataLogger.info(f'\n featuresDetected ({idfeaturesDetected}) \n {self.featuresDetected[idfeaturesDetected]}')
+    
     def TrackingFutures(self):
         # region Parameters for lucas kanade optical flow
-        LucasKanadeParams = dict(winSize=(25, 25),
-                                 maxLevel=2,
-                                 criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.01))
+        # LucasKanadeParams = dict(winSize=(15, 15),
+        #                          maxLevel=2,
+        #                          criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+        
+        LucasKanadeParams = dict(winSize=(15, 15),  # Janela um pouco maior para capturar mais contexto
+                                 maxLevel=8,  # Considera mais níveis na pirâmide para lidar com movimentos maiores
+                                 criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01))  # Critérios mais estritos para precisão
+
         # endregion        
 
         self.idFrameTracked = self.idFrame - 1        
@@ -246,11 +285,12 @@ class VisualOdometry (Camera):
         # endregion
         
         if( self.idFrame > 1 ):
-            if ( len(self.featuresTracked[self.idFrameTracked]) < 10 ):
+            if ( len(self.featuresTracked[self.idFrameTracked]) < 100 ):
+                # self.DetectingFuturesFastMethod()
                 self.DetectingFutures()
                 self.featuresTrackedReset = True
                 self.mask = np.zeros_like(self.framesLoaded[0])
-                print("\n Features Tracked = Features Detected")
+                # print("\n Features Tracked = Features Detected")
             else:
                 self.featuresTrackedReset = False
 
@@ -270,7 +310,7 @@ class VisualOdometry (Camera):
 
     def MatrixEssencial(self):
         
-        self.essencialMatrix, mask = cv2.findEssentialMat(self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], self.intrinsicParameters, method = cv2.RANSAC, prob = 0.999, threshold = 1.0)
+        self.essencialMatrix, mask = cv2.findEssentialMat(self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], self.intrinsicParameters, method = cv2.RANSAC, prob = 0.99, threshold = 0.1, maxIters = 1000)
 
         self.DecomporMatrizEssencial()
 
@@ -281,6 +321,34 @@ class VisualOdometry (Camera):
     def DecomporMatrizEssencial(self):
         # Recupera as matrizes de rotação e translação da matriz essencial
         _, self.rotationMatrix, self.translationMatrix, _ = cv2.recoverPose( self.essencialMatrix, self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], self.intrinsicParameters)
+
+    def draw_epilines(self, img1, img2, ):
+        """Desenha linhas epipolares para pontos correspondentes entre dois frames."""
+        # Converter para cores se as imagens forem em escala de cinza
+        img1 = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR) if img1.ndim == 2 else img1
+        img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR) if img2.ndim == 2 else img2
+        
+        # Calcular linhas epipolares nos dois frames
+        lines1 = cv2.computeCorrespondEpilines(self.featuresTracked[self.idFrame].reshape(-1, 1, 2), 2, self.essencialMatrix)
+        lines1 = lines1.reshape(-1, 3)
+        lines2 = cv2.computeCorrespondEpilines(self.featuresTracked[self.idFrame - 1].reshape(-1, 1, 2), 1, self.essencialMatrix)
+        lines2 = lines2.reshape(-1, 3)
+        
+        # Desenhar as linhas nos frames
+        for r, pt1, pt2 in zip(lines1, self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame]):
+            color = tuple(np.random.randint(0, 255, 3).tolist())
+            x0, y0 = map(int, [0, -r[2]/r[1] ])
+            x1, y1 = map(int, [img1.shape[1], -(r[2]+r[0]*img1.shape[1])/r[1] ])
+            img1 = cv2.line(img1, (x0, y0), (x1, y1), color, 1)
+            img1 = cv2.circle(img1, tuple(pt1), 5, color, -1)
+        for r, pt1, pt2 in zip(lines2, self.featuresTracked[self.idFrame], self.featuresTracked[self.idFrame - 1]):
+            color = tuple(np.random.randint(0, 255, 3).tolist())
+            x0, y0 = map(int, [0, -r[2]/r[1] ])
+            x1, y1 = map(int, [img2.shape[1], -(r[2]+r[0]*img2.shape[1])/r[1] ])
+            img2 = cv2.line(img2, (x0, y0), (x1, y1), color, 1)
+            img2 = cv2.circle(img2, tuple(pt2), 5, color, -1)
+            
+        return img1, img2
 
     def DrawFeaturesTracked(self):
         # Desenhar as linhas que representam o fluxo optico nos quadros
@@ -337,12 +405,13 @@ class VisualOdometry (Camera):
             frame1_with_lines = cv2.circle(frame1_with_lines, (x1, y1), 2, color, -1)
   
         # Display the frames with epipolar lines
-        cv2.imshow('Epipolar Lines', cv2.hconcat([frame1_with_lines, frame2_with_lines]) )
+        # cv2.imshow('Epipolar Lines', cv2.hconcat([frame1_with_lines, frame2_with_lines]) )
 
 class Plots:
     def __init__(self, dataLogger):
         self.dataLogger = dataLogger
         self.numPlots = 0
+        # Corrigir 
 
         self.xValuesGroundTruth = []
         self.yValuesGroundTruth = []
@@ -368,7 +437,7 @@ class Plots:
         self.ax2d.set_ylabel('Z')
         self.ax2d.set_title('2D Camera Trajectory')
 
-    def PrintPlot(self):
+    def PrintPlots(self):
 
         self.ax2d.plot(self.xValuesGroundTruth, self.zValuesGroundTruth, color = 'green', label='GroundTruth')
         self.ax2d.scatter(self.xValuesGroundTruth, self.zValuesGroundTruth, color='red', marker='x')
@@ -385,7 +454,7 @@ class Plots:
         self.numPlots += 1
         self.ShowPlot()
 
-    # def PrintPlot(self):
+    # def PrintPlots(self):
     #     for i in range(len(self.xValues)):
     #         plt.plot(self.xValues[i], self.yValues[i], 'b-')
     #         plt.scatter(self.xValues[i], self.yValues[i], color='red', label='Camera Positions')
@@ -406,16 +475,16 @@ class Plots:
             self.xValuesGroundTruth.append(trajectory[0, 3])
             self.yValuesGroundTruth.append(trajectory[1, 3])
             self.zValuesGroundTruth.append(trajectory[2, 3])
-            print(f"GroundTruth : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
+            # print(f"GroundTruth : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
             self.dataLogger.info(f"GroundTruth : x: {trajectory[0, 3]}, y: {trajectory[1, 3]},  z: {trajectory[2, 3]}" )
 
 
         if type is 'Trajectory':
             # multiply trajectory by -1 for inverte for really trajecotry
-            self.xValuesTrajectory.append(trajectory[0, 3] * (-1))
-            self.yValuesTrajectory.append(trajectory[1, 3] * (-1))
+            self.xValuesTrajectory.append(trajectory[0, 3] * (1))
+            self.yValuesTrajectory.append(trajectory[1, 3] * (1))
             self.zValuesTrajectory.append(trajectory[2, 3] * (-1))
-            print(f"Trajectory : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
+            # print(f"Trajectory : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
             self.dataLogger.info(f"Trajectory : x: {trajectory[0, 3]},  y: {trajectory[1, 3]},  z: {trajectory[2, 3]}")
 
 class Trajectory (Plots):
@@ -423,14 +492,16 @@ class Trajectory (Plots):
         super().__init__(dataLogger)
         self.vo = vo_instance
         self.dataLogger = dataLogger
-        self.trajectory = []
+        # self.trajectory = []
         self.allPointsTrajectory = []
         self.trajectory = np.identity(4)
         self.allPointsTrajectory.append(self.trajectory)
         self.typeTrajectory = 'Trajectory'
         self.typeGroundTruth = 'GroundTruth'
         # Criar um image em branco
-        self.imageTrajectory = np.ones((700, 1024, 3), dtype=np.uint8) * 255  # image branco
+        self.imageTrajectory = np.ones((700, 1024, 3), dtype=np.uint8) * 255  # image branco        
+        self.pos = np.zeros((3, 1), dtype=np.float32)
+        self.rot = np.eye(3)
 
     def PrintTrajectory(self):        
         # Convert the camera positions to pixel coordinates on the image
@@ -438,6 +509,15 @@ class Trajectory (Plots):
         centerX, centerZ = int(self.imageTrajectory.shape[1] / 2), int(self.imageTrajectory.shape[0] / 2)
         colorGroundTruth = (255, 0, 0)
         colorTrajectory = (0, 0, 255)
+
+        textPositionGroundTruth = (10, 40)
+        textPositionTrajectory = (10, 60)
+       
+        textPositionAxixZ = (10, centerZ)
+        textPositionAxixX = (centerX  , 690)
+
+        cv2.putText(self.imageTrajectory, 'Z', textPositionAxixZ, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+        cv2.putText(self.imageTrajectory, 'X', textPositionAxixX, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
 
         # region GroundTruth
         # Draw the current position as a red circle
@@ -448,7 +528,6 @@ class Trajectory (Plots):
         # Add text with X, Y, and Z coordinates at the current position
         textGroundTruth = (f"Ground Truth X: {self.xValuesGroundTruth[self.vo.idFrame]:.2f}, Y: {self.yValuesGroundTruth[self.vo.idFrame]:.2f}, Z: {self.zValuesGroundTruth[self.vo.idFrame]:.2f}")
         # textPositionGroundTruth = (centerX + int(self.xValuesGroundTruth[self.vo.idFrame - 1]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame - 1]) - 20)
-        textPositionGroundTruth = 10, 20
         cv2.putText(self.imageTrajectory, textGroundTruth, textPositionGroundTruth, cv2.FONT_HERSHEY_SIMPLEX, 0.5, colorGroundTruth, 1)
         # endregion
 
@@ -462,7 +541,6 @@ class Trajectory (Plots):
         # Add text with X, Y, and Z coordinates at the current position
         textValuesTrajectory = (f"Trajectory X: {self.xValuesTrajectory[self.vo.idFrame]:.2f}, Y: {self.yValuesTrajectory[self.vo.idFrame]:.2f}, Z: {self.zValuesTrajectory[self.vo.idFrame]:.2f}")
         # textPositionTrajectory = (centerX + int(self.xValuesTrajectory[self.vo.idFrame - 1]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame - 1]) - 20)
-        textPositionTrajectory = 10, 40
         cv2.putText(self.imageTrajectory, textValuesTrajectory, textPositionTrajectory, cv2.FONT_HERSHEY_SIMPLEX, 0.5, colorTrajectory, 1)
         # endregion
 
@@ -471,12 +549,10 @@ class Trajectory (Plots):
         # region clean
         textGroundTruth = f"Ground Truth X: {self.xValuesGroundTruth[self.vo.idFrame]:.2f}, Y: {self.yValuesGroundTruth[self.vo.idFrame]:.2f}, Z: {self.zValuesGroundTruth[self.vo.idFrame]:.2f}"
         # textPositionGroundTruth = (centerX + int(self.xValuesGroundTruth[self.vo.idFrame - 1]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame - 1]) - 20)
-        textPositionGroundTruth = 10, 20
         cv2.putText(self.imageTrajectory, textGroundTruth, textPositionGroundTruth, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
         textValuesTrajectory = f"Trajectory X: {self.xValuesTrajectory[self.vo.idFrame]:.2f}, Y: {self.yValuesTrajectory[self.vo.idFrame]:.2f}, Z: {self.zValuesTrajectory[self.vo.idFrame]:.2f}"
         # textPositionTrajectory = (centerX + int(self.xValuesTrajectory[self.vo.idFrame - 1]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame - 1]) - 20)
-        textPositionTrajectory = 10, 40
         cv2.putText(self.imageTrajectory, textValuesTrajectory, textPositionTrajectory, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         # endregion
 
@@ -487,19 +563,27 @@ class Trajectory (Plots):
         # A posição e orientação da câmera no instante n é dada por
         # 𝐶𝑛 = 𝑅𝑛,𝑛−1𝐶𝑛−1 + 𝑇𝑛,𝑛−1
 
+        
         TkHomogeneous = np.eye(4)
         TkHomogeneous[:3, :3] = self.vo.rotationMatrix
         TkHomogeneous[:3, 3] = self.vo.translationMatrix.ravel()
-        self.trajectory = self.trajectory @ TkHomogeneous
-        self.allPointsTrajectory.append(self.trajectory)
+        self.trajectory = self.trajectory @ TkHomogeneous # Matrix Multiplication
+        # print(f'\n{self.trajectory}\n *\n {TkHomogeneous} \n=\n {self.trajectory @ TkHomogeneous}\n')
+
+        # self.pos = self.pos + self.rot @ self.vo.translationMatrix
+        # self.rot = self.rot @ self.vo.rotationMatrix
+        # self.trajectory = cv2.hconcat([self.rot, self.pos])
+
+        # self.allPointsTrajectory.append(self.trajectory)
 
         self.dataLogger.info(f'\n trajectory \n {self.trajectory}')
+        # print(self.trajectory)
         
         return self.trajectory
 
 def mainTest():
     idCamera = 0
-    numFramesToLoad = 4000
+    numFramesToLoad = 10
 
     dataLogger = ConfigDataLogger()
 
@@ -529,36 +613,47 @@ def mainTest():
     trajectory.PrintTrajectory()
     
     vo.idFrame += 1
-    for i in range(numFramesToLoad):
-        trajectory.AddPointsPlot(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth)        
-        trajectory.PrintTrajectory()
-        vo.idFrame += 1
-        cv2.waitKey(1)
-    trajectory.PrintPlot()
+    # for i in range(numFramesToLoad):
+    #     trajectory.AddPointsPlot(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth)        
+    #     trajectory.PrintTrajectory()
+    #     vo.idFrame += 1
+    #     cv2.waitKey(1)
+    trajectory.PrintPlots()
+    # cv2.waitKey(0)
     
     return
 
 def main():
     try:
         idCamera = 0
-        numFramesToLoad = 400
+        numFramesToLoad = 1000
 
+        # instancias
         dataLogger = ConfigDataLogger()
         groundTruth = GroundTruth(dataLogger)
         vo = VisualOdometry(dataLogger, idCamera, numFramesToLoad)
         trajectory = Trajectory(dataLogger, vo)
 
-        # 1st
+        # Start
+        # 1st frame
         trajectory.AddPointsPlot(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth)
         trajectory.AddPointsPlot(trajectory.trajectory, trajectory.typeTrajectory) 
         trajectory.PrintTrajectory()
+
         vo.DetectingFutures()
         vo.idFrame += 1
         
-        # 2nd
+        # 2nd frame
         vo.TrackingFutures()
-        vo.MatrixEssencial()        
-        vo.PrintFrameMatches(vo.featuresTracked[vo.idFrame - 1], vo.featuresTracked[vo.idFrame])
+        vo.MatrixEssencial() 
+        # matlab2(vo.idFrame, vo)
+
+        # vo.PrintFrameMatches(vo.featuresTracked[vo.idFrame - 1], vo.featuresTracked[vo.idFrame])
+        # cv2.imshow('Matches', cv2.drawMatches(vo.framesLoaded[vo.idFrame - 1], vo.featuresTracked[vo.idFrame - 1], 
+        #                                       vo.framesLoaded[vo.idFrame], vo.featuresTracked[vo.idFrame], 
+        #                                       vo.featuresTracked[vo.idFrame][:10], 
+        #                                       None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS))
+        
         trajectory.AddPointsPlot(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth)
         trajectory.AddPointsPlot(trajectory.GetTrajectory(vo.idFrame), trajectory.typeTrajectory)
         # vo.PrintEpipolarGeometry(vo.framesLoaded[vo.idFrame - 1], vo.framesLoaded[vo.idFrame], vo.essencialMatrix)
@@ -571,7 +666,6 @@ def main():
         for i in tqdm(range(len(vo.framesLoaded)- numFeaturesDetected)): 
             vo.TrackingFutures()
             vo.MatrixEssencial()
-    
             vo.PrintFrameMatches(vo.featuresTracked[vo.idFrame - 1], vo.featuresTracked[vo.idFrame])
             # vo.PrintEpipolarGeometry(vo.framesLoaded[vo.idFrame - 1], vo.framesLoaded[vo.idFrame], vo.essencialMatrix)
             
@@ -583,12 +677,15 @@ def main():
             vo.idFrame += 1
             vo.DrawFeaturesTracked()
             cv2.waitKey(1)
-
     except IndexError:
     # except MemoryError:
         print("Erro: Fim de programa.")
 
-    trajectory.PrintPlot()
+    
+    # matlab1(vo.idFrame, vo)
+    trajectory.PrintPlots()
+    
+    
 
     cv2.waitKey(0)
 

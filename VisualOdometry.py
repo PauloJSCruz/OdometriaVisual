@@ -1,5 +1,5 @@
 # region Imports
-from asyncio.windows_events import NULL
+# from asyncio.windows_events import NULL
 import cv2
 import numpy as np
 import matplotlib.pylab as plt
@@ -42,7 +42,7 @@ class Camera:
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
-        file = "CalibrationCam\calib.txt"
+        file = "CalibrationCam/calib.txt"
 
         try:
             with open(file) as fileCalib:
@@ -184,7 +184,7 @@ class VisualOdometry (Camera):
                                minDistance=5,
                                blockSize=5)
          
-        if self.framesLoaded[self.idFrame] is not NULL:
+        if (self.framesLoaded[self.idFrame] != 0 ):
             keypointsDetected = cv2.goodFeaturesToTrack(self.FrameProcess(self.framesLoaded[self.idFrame]), mask=None, **ShiTomasiParams, useHarrisDetector=True, k=0.04)
             # keypointsDetected = keypointsDetected.astype(np.int32)
             self.featuresDetected.append(keypointsDetected)

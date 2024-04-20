@@ -399,6 +399,10 @@ class Plots:
         self.errorY = []
         self.errorZ = []
         self.errorIDs = []
+        
+        # Opening a file for appending the poinys
+        self.fileOutput = open("Resultados/OutputTrajectory.txt", "w")
+        self.fileOutput.close()
 
         # self.fig, self.ax = plt.subplots()
         self.fig3d = plt.figure()
@@ -455,10 +459,10 @@ class Plots:
                 self.ax2d.legend()
                 self.ax3d.legend()
                 self.error.legend()
+            self.fig1d.savefig("Resultados/PlotError.pdf")
+            self.fig2d.savefig("Resultados/Trajectory2D.pdf")
+            self.fig3d.savefig("Resultados/Trajectory3D.pdf")            
             plt.show()
-            self.fig1d.savefig("PlotError")
-            self.fig2d.savefig("Trajectory2D")
-            self.fig3d.savefig("Trajectory3D")
 
         else:
             print("No data to plot.")
@@ -476,9 +480,19 @@ class Plots:
 
         if type is 'Trajectory':
             # multiply trajectory by -1 for inverte for really trajecotry
-            self.xValuesTrajectory.append(trajectory[0, 3] * (1))
-            self.yValuesTrajectory.append(trajectory[1, 3] * (-1))
-            self.zValuesTrajectory.append(trajectory[2, 3] * (-1))
+            x = trajectory[0, 3] * (1)
+            y = trajectory[1, 3] * (-1)
+            z = trajectory[2, 3] * (-1)
+            self.xValuesTrajectory.append(x)
+            self.yValuesTrajectory.append(y)
+            self.zValuesTrajectory.append(z)
+            
+            # Opening a file for appending the poinys
+            self.fileOutput = open("Resultados/OutputTrajectory.txt", "a")
+            self.fileOutput.write(f"{x} {y} {z}\n")
+            self.fileOutput.close()
+
+            # Log data
             # print(f"Trajectory : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
             # self.dataLogger.info(f"Trajectory : x: {trajectory[0, 3]},  y: {trajectory[1, 3]},  z: {trajectory[2, 3]}")
    
@@ -635,7 +649,7 @@ def mainTest():
 def main():
     try:
         idCamera = 0
-        numFramesToLoad = 500
+        numFramesToLoad = 10
 
         # instancias
         dataLogger = ConfigDataLogger()

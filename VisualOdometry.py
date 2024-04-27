@@ -39,6 +39,7 @@ class Camera:
         self.framesStored = []
         self.framesLoaded = []
         self.intrinsicParameters = []
+        self.projectionMatrix = []
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
@@ -51,9 +52,9 @@ class Camera:
                         # Extrai os números da linha, ignorando o identificador "P0:"
                         elementos = np.fromstring(line[3:], sep=' ', dtype=np.float64)
                         # Reorganiza os elementos para formar a matriz de projeção 3x4
-                        matriz_projecao = np.reshape(elementos, (3, 4))
+                        self.projectionMatrix = np.reshape(elementos, (3, 4))
                         # Extrai os parâmetros intrínsecos (as três primeiras colunas da matriz de projeção)
-                        self.intrinsicParameters = matriz_projecao[:, :3]
+                        self.intrinsicParameters = self.projectionMatrix[:, :3]
                         print("Parâmetros intrínsecos:")
                         print(self.intrinsicParameters)
                         break  # Encerra o loop após processar a linha desejada

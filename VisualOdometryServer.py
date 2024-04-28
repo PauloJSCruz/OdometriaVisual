@@ -476,9 +476,9 @@ class Plots:
 
         if type is 'Trajectory':
             # multiply trajectory by -1 for inverte for really trajecotry
-            x = trajectory[0, 3] * (1)
-            y = trajectory[1, 3] * (-1)
-            z = trajectory[2, 3] * (-1)
+            x = trajectory[0]
+            y = trajectory[1]
+            z = trajectory[2]
             self.xValuesTrajectory.append(x)
             self.yValuesTrajectory.append(y)
             self.zValuesTrajectory.append(z)

@@ -170,11 +170,11 @@ class VisualOdometry (Camera):
         if self.framesLoaded[self.idFrame] is not None:
             
             # Converte a imagem para escala de cinza
-            frame_gray = cv2.cvtColor(self.framesLoaded[self.idFrame], cv2.COLOR_BGR2GRAY)
-            # self.PrintCustomFrame(frame_gray)
+            frameGray = cv2.cvtColor(self.framesLoaded[self.idFrame], cv2.COLOR_BGR2GRAY)
+            # self.PrintCustomFrame(frameGray)
             
             # Encontra os pontos de interesse usando o detector FAST
-            keypoints = self.fastDetector.detect(frame_gray, None)
+            keypoints = self.fastDetector.detect(frameGray, None)
             
             # Converte os keypoints para um array numpy
             keypoints_np = np.array([kp.pt for kp in keypoints], dtype=np.float32)

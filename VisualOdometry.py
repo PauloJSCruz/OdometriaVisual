@@ -2,13 +2,17 @@
 # from asyncio.windows_events import NULL
 import cv2
 import numpy as np
-import matplotlib.pylab as plt
-import pandas as pd
+import matplotlib
+matplotlib.use('Agg')  # Use backend sem interface gráfica
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+# import pandas as pd
 import os
 import logging
 from datetime import datetime
 from tqdm import tqdm
 import ManualPoints
+from picamera2 import Picamera2
 # endregion
 
 
@@ -35,11 +39,13 @@ class Camera:
         self.filePath = f'Recursos/00/image_{self.idCamera}'
         # self.filePath = f'Recursos/Teste'
         self.idFrame = 0
-        self.liveON = False
+        self.liveON = True
         self.framesStored = []
         self.framesLoaded = []
         self.intrinsicParameters = []
         self.projectionMatrix = []
+        # self.picam2 = Picamera2()
+        self.webCapture = cv2.VideoCapture(0)
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
@@ -121,23 +127,29 @@ class Camera:
 
     def LiveCam(self):
         # Live
-        self.framesLoaded.append( cv2.VideoCapture(0) )
+        ret, frameCaptured = self.webCapture.read()
+        if not ret:
+            print("Erro: Não foi possível capturar o frame.")
+            return
+        cv2.imshow('Live Frame', frameCaptured)    
+        self.framesLoaded.append( frameCaptured )
 
     def PrintFrame(self):
-            cv2.imshow('Frame', self.framesLoaded[self.idFrame])
+        cv2.imshow('Frame', self.framesLoaded[self.idFrame])
 
     def PrintCustomFrame(self, frame):
         cv2.imshow('Custom Frame', frame)
 
 class GroundTruth:    
     def __init__(self, dataLogger):
-        self.posesReaded = pd.read_csv( f'Recursos/data_odometry_poses/dataset/poses/00.txt' , delimiter= ' ' , header= None ) 
-        # print ( 'Tamanho do dataframe de pose:' , poses.shape) 
-        # print(f'posesReaded: {self.posesReaded.head()}\n')
-        self.poses = (np.array(self.posesReaded.iloc[0]).reshape((3, 4)))
+        with open('Recursos/data_odometry_poses/dataset/poses/00.txt', 'r') as file:
+            self.posesReaded = np.loadtxt(file, delimiter=' ', dtype=float)
+            return
+            # self.posesReaded = list(reader)
+        # self.posesReaded = pd.read_csv( f'Recursos/data_odometry_poses/dataset/poses/00.txt' , delimiter= ' ' , header= None ) 
         
     def GetPose(self, dataLogger, idFrame):
-        self.poses = (np.array(self.posesReaded.iloc[idFrame]).reshape((3, 4)))
+        self.poses = (np.array(self.posesReaded[idFrame]).reshape((3, 4)))
         dataLogger.info(f'\n Ground Truth idFrame({idFrame}) : \n {self.poses}')
         return self.poses
 
@@ -155,7 +167,10 @@ class VisualOdometry (Camera):
         self.essencialMatrix = []
         self.rotationMatrix = []
         self.translationMatrix = []
-        self.mask = np.zeros_like(self.framesStored[0])
+        if(len(self.framesStored) ==  0):
+            self.mask = np.zeros_like(self.framesLoaded[0])
+        if(len(self.framesStored) >  0):
+            self.mask = np.zeros_like(self.framesStored[0])
         # Analized needed
         self.firstFrame = []
         self.featuresTrackedReset = False
@@ -650,7 +665,7 @@ def mainTest():
 def main():
     try:
         idCamera = 0
-        numFramesToLoad = 10
+        numFramesToLoad = 1000
 
         # instancias
         dataLogger = ConfigDataLogger()

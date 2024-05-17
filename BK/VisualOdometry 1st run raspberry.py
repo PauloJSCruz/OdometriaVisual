@@ -2,17 +2,13 @@
 # from asyncio.windows_events import NULL
 import cv2
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')  # Use backend sem interface gráfica
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-# import pandas as pd
+import matplotlib.pylab as plt
+import pandas as pd
 import os
 import logging
 from datetime import datetime
 from tqdm import tqdm
 import ManualPoints
-# from picamera2 import Picamera2
 # endregion
 
 
@@ -39,13 +35,10 @@ class Camera:
         self.filePath = f'Recursos/00/image_{self.idCamera}'
         # self.filePath = f'Recursos/Teste'
         self.idFrame = 0
-        self.liveON = True
+        self.liveON = False
         self.framesStored = []
         self.framesLoaded = []
         self.intrinsicParameters = []
-        self.projectionMatrix = []
-        # self.picam2 = Picamera2()
-        self.webCapture = cv2.VideoCapture(0)
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
@@ -58,9 +51,9 @@ class Camera:
                         # Extrai os números da linha, ignorando o identificador "P0:"
                         elementos = np.fromstring(line[3:], sep=' ', dtype=np.float64)
                         # Reorganiza os elementos para formar a matriz de projeção 3x4
-                        self.projectionMatrix = np.reshape(elementos, (3, 4))
+                        matriz_projecao = np.reshape(elementos, (3, 4))
                         # Extrai os parâmetros intrínsecos (as três primeiras colunas da matriz de projeção)
-                        self.intrinsicParameters = self.projectionMatrix[:, :3]
+                        self.intrinsicParameters = matriz_projecao[:, :3]
                         print("Parâmetros intrínsecos:")
                         print(self.intrinsicParameters)
                         break  # Encerra o loop após processar a linha desejada
@@ -73,21 +66,17 @@ class Camera:
         # self.dataLogger.info(f'\nParâmetros Intrínsecos:\n{self.intrinsicParameters}')        
         # dataLogger.info(f'\n distortioncoefficient \n {distortioncoefficient}')
 
-    def SetupFrames(self):
-        if self.liveON is False:
-            framePath = [os.path.join(self.filePath, file) for file in sorted(os.listdir(self.filePath))][:self.numFramesToLoad]
-            self.framesStored = [cv2.imread(path) for path in framePath][:self.numFramesToLoad]
-            return print( '\n Frames Loaded \n')
-        
-        if self.liveON is True:
-            self.LiveCam()
-    
     def LoadFrames(self):
         if self.liveON is False:
-            self.framesLoaded.append(self.framesStored[self.idFrame])
-            self.idFrame = len(self.framesLoaded) - 1
-            self.PrintFrame()
-            return 
+            if ( len(self.framesStored) == 0):
+                framePath = [os.path.join(self.filePath, file) for file in sorted(os.listdir(self.filePath))][:self.numFramesToLoad]
+                self.framesStored = [cv2.imread(path) for path in framePath][:self.numFramesToLoad]
+                return print( '\n Frames Loaded \n')
+            else:
+                self.framesLoaded.append(self.framesStored[self.idFrame])
+                self.idFrame = len(self.framesLoaded) - 1
+                self.PrintFrame()
+                return 
 
         if self.liveON is True:
             # Capture new frame
@@ -131,29 +120,23 @@ class Camera:
 
     def LiveCam(self):
         # Live
-        ret, frameCaptured = self.webCapture.read()
-        if not ret:
-            print("Erro: Não foi possível capturar o frame.")
-            return
-        cv2.imshow('Live Frame', frameCaptured)    
-        self.framesLoaded.append( frameCaptured )
+        self.framesLoaded.append( cv2.VideoCapture(0) )
 
     def PrintFrame(self):
-        cv2.imshow('Frame', self.framesLoaded[self.idFrame])
+            cv2.imshow('Frame', self.framesLoaded[self.idFrame])
 
     def PrintCustomFrame(self, frame):
         cv2.imshow('Custom Frame', frame)
 
 class GroundTruth:    
     def __init__(self, dataLogger):
-        with open('Recursos/data_odometry_poses/dataset/poses/00.txt', 'r') as file:
-            self.posesReaded = np.loadtxt(file, delimiter=' ', dtype=float)
-            return
-            # self.posesReaded = list(reader)
-        # self.posesReaded = pd.read_csv( f'Recursos/data_odometry_poses/dataset/poses/00.txt' , delimiter= ' ' , header= None ) 
+        self.posesReaded = pd.read_csv( f'Recursos/data_odometry_poses/dataset/poses/00.txt' , delimiter= ' ' , header= None ) 
+        # print ( 'Tamanho do dataframe de pose:' , poses.shape) 
+        # print(f'posesReaded: {self.posesReaded.head()}\n')
+        self.poses = (np.array(self.posesReaded.iloc[0]).reshape((3, 4)))
         
     def GetPose(self, dataLogger, idFrame):
-        self.poses = (np.array(self.posesReaded[idFrame]).reshape((3, 4)))
+        self.poses = (np.array(self.posesReaded.iloc[idFrame]).reshape((3, 4)))
         dataLogger.info(f'\n Ground Truth idFrame({idFrame}) : \n {self.poses}')
         return self.poses
 
@@ -171,14 +154,11 @@ class VisualOdometry (Camera):
         self.essencialMatrix = []
         self.rotationMatrix = []
         self.translationMatrix = []
-        if(len(self.framesStored) ==  0):
-            self.mask = np.zeros_like(self.framesLoaded[0])
-            self.framesLoaded = []
-        if(len(self.framesStored) >  0):
-            self.mask = np.zeros_like(self.framesStored[0])
+        self.mask = np.zeros_like(self.framesStored[0])
         # Analized needed
         self.firstFrame = []
         self.featuresTrackedReset = False
+        self.idFrame = 0
         self.idFramePreviuos = 0
         self.idFrameTracked = 0
 
@@ -419,10 +399,6 @@ class Plots:
         self.errorY = []
         self.errorZ = []
         self.errorIDs = []
-        
-        # Opening a file for appending the poinys
-        self.fileOutput = open("Resultados/OutputTrajectory.txt", "w")
-        self.fileOutput.close()
 
         # self.fig, self.ax = plt.subplots()
         self.fig3d = plt.figure()
@@ -479,10 +455,10 @@ class Plots:
                 self.ax2d.legend()
                 self.ax3d.legend()
                 self.error.legend()
-            self.fig1d.savefig("Resultados/PlotError.pdf")
-            self.fig2d.savefig("Resultados/Trajectory2D.pdf")
-            self.fig3d.savefig("Resultados/Trajectory3D.pdf")            
             plt.show()
+            self.fig1d.savefig("PlotError")
+            self.fig2d.savefig("Trajectory2D")
+            self.fig3d.savefig("Trajectory3D")
 
         else:
             print("No data to plot.")
@@ -500,19 +476,9 @@ class Plots:
 
         if type is 'Trajectory':
             # multiply trajectory by -1 for inverte for really trajecotry
-            x = trajectory[0, 3] * (1)
-            y = trajectory[1, 3] * (-1)
-            z = trajectory[2, 3] * (-1)
-            self.xValuesTrajectory.append(x)
-            self.yValuesTrajectory.append(y)
-            self.zValuesTrajectory.append(z)
-            
-            # Opening a file for appending the poinys
-            self.fileOutput = open("Resultados/OutputTrajectory.txt", "a")
-            self.fileOutput.write(f"{x} {y} {z}\n")
-            self.fileOutput.close()
-
-            # Log data
+            self.xValuesTrajectory.append(trajectory[0, 3] * (1))
+            self.yValuesTrajectory.append(trajectory[1, 3] * (-1))
+            self.zValuesTrajectory.append(trajectory[2, 3] * (-1))
             # print(f"Trajectory : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
             # self.dataLogger.info(f"Trajectory : x: {trajectory[0, 3]},  y: {trajectory[1, 3]},  z: {trajectory[2, 3]}")
    
@@ -669,7 +635,7 @@ def mainTest():
 def main():
     try:
         idCamera = 0
-        numFramesToLoad = 200
+        numFramesToLoad = 500
 
         # instancias
         dataLogger = ConfigDataLogger()
@@ -677,7 +643,7 @@ def main():
         vo = VisualOdometry(dataLogger, idCamera, numFramesToLoad)
         trajectory = Trajectory(dataLogger, vo)
 
-        vo.SetupFrames()
+        vo.LoadFrames()
 
         # Start
         # 1st frame
@@ -688,36 +654,20 @@ def main():
         vo.DetectingFeaturesFastMethod()
         vo.LoadFrames()
 
-        if(vo.liveON == False):
-            for i in tqdm(range(len(vo.framesStored)- len(vo.featuresDetected))):
-                vo.TrackingFutures()
-                vo.MatrixEssencial()
-                vo.PrintFrameMatches(vo.featuresTracked[vo.idFrame - 1], vo.featuresTracked[vo.idFrame])
-                # vo.PrintEpipolarGeometry(vo.framesLoaded[vo.idFrame - 1], vo.framesLoaded[vo.idFrame], vo.essencialMatrix)
-                
-                trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
-                trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
-                trajectory.PrintTrajectory()
-                
-                # Load number of iterations            
-                vo.LoadFrames()
-                # vo.DrawFeaturesTracked()
-                cv2.waitKey(1)
-        else:
-            while(True):    
-                vo.TrackingFutures()
-                vo.MatrixEssencial()
-                vo.PrintFrameMatches(vo.featuresTracked[vo.idFrame - 1], vo.featuresTracked[vo.idFrame])
-                # vo.PrintEpipolarGeometry(vo.framesLoaded[vo.idFrame - 1], vo.framesLoaded[vo.idFrame], vo.essencialMatrix)
-                
-                trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
-                trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
-                trajectory.PrintTrajectory()
-                
-                # Load number of iterations            
-                vo.LoadFrames()
-                # vo.DrawFeaturesTracked()
-                cv2.waitKey(1)
+        for i in tqdm(range(len(vo.framesStored)- len(vo.featuresDetected))):
+            vo.TrackingFutures()
+            vo.MatrixEssencial()
+            vo.PrintFrameMatches(vo.featuresTracked[vo.idFrame - 1], vo.featuresTracked[vo.idFrame])
+            # vo.PrintEpipolarGeometry(vo.framesLoaded[vo.idFrame - 1], vo.framesLoaded[vo.idFrame], vo.essencialMatrix)
+            
+            trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
+            trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
+            trajectory.PrintTrajectory()
+            
+            # Load number of iterations            
+            vo.LoadFrames()
+            # vo.DrawFeaturesTracked()
+            cv2.waitKey(1)
             
     # except IndexError:
     except MemoryError:

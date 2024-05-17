@@ -6,4 +6,5 @@ picam2.start()
 while True:
     image = picam2.capture_array()
     cv2.imshow('Custom Frame', image)
+    
     cv2.waitKey(1)

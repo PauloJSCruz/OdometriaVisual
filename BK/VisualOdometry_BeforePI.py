@@ -8,6 +8,7 @@ import os
 import logging
 from datetime import datetime
 from tqdm import tqdm
+import math
 import ManualPoints
 # endregion
 
@@ -27,7 +28,7 @@ def ConfigDataLogger():
     
     return logging.getLogger('dataLogger')
         
-class Camera:        
+class Camera:
     def __init__(self, dataLogger, IndexCamera):
         self.idCamera = IndexCamera
         self.numFramesToLoad = 0
@@ -39,6 +40,7 @@ class Camera:
         self.framesStored = []
         self.framesLoaded = []
         self.intrinsicParameters = []
+        self.projectionMatrix = []
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
@@ -51,9 +53,9 @@ class Camera:
                         # Extrai os números da linha, ignorando o identificador "P0:"
                         elementos = np.fromstring(line[3:], sep=' ', dtype=np.float64)
                         # Reorganiza os elementos para formar a matriz de projeção 3x4
-                        matriz_projecao = np.reshape(elementos, (3, 4))
+                        self.projectionMatrix = np.reshape(elementos, (3, 4))
                         # Extrai os parâmetros intrínsecos (as três primeiras colunas da matriz de projeção)
-                        self.intrinsicParameters = matriz_projecao[:, :3]
+                        self.intrinsicParameters = self.projectionMatrix[:, :3]
                         print("Parâmetros intrínsecos:")
                         print(self.intrinsicParameters)
                         break  # Encerra o loop após processar a linha desejada
@@ -130,17 +132,17 @@ class Camera:
 
 class GroundTruth:    
     def __init__(self, dataLogger):
-        self.posesReaded = pd.read_csv( f'Recursos/data_odometry_poses/dataset/poses/00.txt' , delimiter= ' ' , header= None ) 
-        # print ( 'Tamanho do dataframe de pose:' , poses.shape) 
-        # print(f'posesReaded: {self.posesReaded.head()}\n')
-        self.poses = (np.array(self.posesReaded.iloc[0]).reshape((3, 4)))
+        with open("Recursos/data_odometry_poses/dataset/poses/00.txt", 'r') as file:
+            self.posesReaded = np.loadtxt(file, delimiter=' ', dtype=float)
+            return
         
     def GetPose(self, dataLogger, idFrame):
-        self.poses = (np.array(self.posesReaded.iloc[idFrame]).reshape((3, 4)))
-        dataLogger.info(f'\n Ground Truth idFrame({idFrame}) : \n {self.poses}')
+        self.poses = (np.array(self.posesReaded[idFrame]).reshape((3, 4)))
+        # dataLogger.info(f'\n Ground Truth idFrame({idFrame}) : \n {self.poses}')
         return self.poses
 
 class VisualOdometry (Camera):
+
     def __init__(self, dataLogger, indexCamera, numFramestoLoad):
         super().__init__(dataLogger, indexCamera)
         self.numFramesToLoad = numFramestoLoad
@@ -203,11 +205,17 @@ class VisualOdometry (Camera):
         if self.framesLoaded[self.idFrame] is not None:
             
             # Converte a imagem para escala de cinza
-            frame_gray = cv2.cvtColor(self.framesLoaded[self.idFrame], cv2.COLOR_BGR2GRAY)
-            self.PrintCustomFrame(frame_gray)
+            frameGray = cv2.cvtColor(self.framesLoaded[self.idFrame], cv2.COLOR_BGR2GRAY)
+            frameFiltered = frameGray
+            # frameFiltered = self.BandPassFilter(frameGray)
+            # tamanho_kernel = (7, 7)
+            # desvio_padrao = 12  # Valor maior para mais desfoque
+            # frameFiltered = cv2.GaussianBlur(frameGray, tamanho_kernel, desvio_padrao)
+            self.PrintCustomFrame(frameFiltered)
+
             
             # Encontra os pontos de interesse usando o detector FAST
-            keypoints = self.fastDetector.detect(frame_gray, None)
+            keypoints = self.fastDetector.detect(frameFiltered, None)
             
             # Converte os keypoints para um array numpy
             keypoints_np = np.array([kp.pt for kp in keypoints], dtype=np.float32)
@@ -229,7 +237,29 @@ class VisualOdometry (Camera):
             # A linha comentada abaixo sugere que você está tentando logar as características detectadas.
             # Certifique-se de que dataLogger está definido corretamente e descomente a linha abaixo, se necessário.
             # self.dataLogger.info(f'\n featuresDetected ({idfeaturesDetected}) \n {self.featuresDetected[idfeaturesDetected]}')
-    
+
+    def BandPassFilter(self, frame):
+        # Transformada de Fourier
+        f_transform = np.fft.fft2(frame)  # Aplica a transformada de Fourier na imagem
+        f_shift = np.fft.fftshift(f_transform)  # Shift para o centro do espectro
+
+        # Criar filtro passa-banda
+        rows, cols = frame.shape
+        crow, ccol = rows // 2, cols // 2  # Encontrar o centro da imagem
+        mask = np.zeros((rows, cols), np.uint8)  # Criar uma matriz de zeros do tamanho da imagem
+        mask[crow-30:crow+30, ccol-30:ccol+30] = 1  # Definir uma região de passa-banda no centro da imagem
+
+        # Aplicar filtro
+        f_shift = f_shift * mask  # Multiplicar a transformada pela máscara de filtro
+
+        # Transformada inversa de Fourier
+        f_ishift = np.fft.ifftshift(f_shift)  # Desfazer o shift
+        image_filtered = np.fft.ifft2(f_ishift)  # Aplicar a transformada inversa
+        image_filtered = np.abs(image_filtered)  # Obter a magnitude
+
+        # Converter de volta para o tipo uint8
+        return np.uint8(image_filtered)
+
     def TrackingFutures(self):
         # Parameters for lucas kanade optical flow
         LucasKanadeParams = dict(winSize=(21, 21),  # Janela um pouco maior para capturar mais contexto
@@ -399,6 +429,10 @@ class Plots:
         self.errorY = []
         self.errorZ = []
         self.errorIDs = []
+        
+        # Opening a file for appending the poinys
+        self.fileOutput = open("Resultados/OutputTrajectory.txt", "w")
+        self.fileOutput.close()
 
         # self.fig, self.ax = plt.subplots()
         self.fig3d = plt.figure()
@@ -455,10 +489,10 @@ class Plots:
                 self.ax2d.legend()
                 self.ax3d.legend()
                 self.error.legend()
+            self.fig1d.savefig("Resultados/PlotError.pdf")
+            self.fig2d.savefig("Resultados/Trajectory2D.pdf")
+            self.fig3d.savefig("Resultados/Trajectory3D.pdf")            
             plt.show()
-            self.fig1d.savefig("PlotError")
-            self.fig2d.savefig("Trajectory2D")
-            self.fig3d.savefig("Trajectory3D")
 
         else:
             print("No data to plot.")
@@ -470,15 +504,26 @@ class Plots:
             self.xValuesGroundTruth.append(trajectory[0, 3])
             self.yValuesGroundTruth.append(trajectory[1, 3])
             self.zValuesGroundTruth.append(trajectory[2, 3])
+            return
             # print(f"GroundTruth : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
             # self.dataLogger.info(f"GroundTruth : x: {trajectory[0, 3]}, y: {trajectory[1, 3]},  z: {trajectory[2, 3]}" )
 
 
         if type is 'Trajectory':
             # multiply trajectory by -1 for inverte for really trajecotry
-            self.xValuesTrajectory.append(trajectory[0, 3] * (1))
-            self.yValuesTrajectory.append(trajectory[1, 3] * (-1))
-            self.zValuesTrajectory.append(trajectory[2, 3] * (-1))
+            x = trajectory[0, 3] * (1)
+            y = trajectory[1, 3] * (-1)
+            z = trajectory[2, 3] * (-1)
+            self.xValuesTrajectory.append(x)
+            self.yValuesTrajectory.append(y)
+            self.zValuesTrajectory.append(z)
+            
+            # Opening a file for appending the poinys
+            self.fileOutput = open("Resultados/OutputTrajectory.txt", "a")
+            self.fileOutput.write(f"{x} {y} {z}\n")
+            self.fileOutput.close()
+
+            # Log data
             # print(f"Trajectory : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
             # self.dataLogger.info(f"Trajectory : x: {trajectory[0, 3]},  y: {trajectory[1, 3]},  z: {trajectory[2, 3]}")
    
@@ -632,10 +677,19 @@ def mainTest():
     
     return
 
+def getAbsoluteScale(pose1, pose2):
+    x1 = pose1[3]
+    y1 = pose1[7]
+    z1 = pose1[11]
+    x2 = pose2[3]
+    y2 = pose2[7]
+    z2 = pose2[11]
+    return math.sqrt((x1-x2)**2 + (y1-y2)**2 + (z1-z2)**2)
+
 def main():
     try:
         idCamera = 0
-        numFramesToLoad = 500
+        numFramesToLoad = 1500
 
         # instancias
         dataLogger = ConfigDataLogger()
@@ -661,6 +715,7 @@ def main():
             # vo.PrintEpipolarGeometry(vo.framesLoaded[vo.idFrame - 1], vo.framesLoaded[vo.idFrame], vo.essencialMatrix)
             
             trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
+            scale = getAbsoluteScale(groundTruth.GetPose(dataLogger, vo.idFrame-1), groundTruth.GetPose(dataLogger, vo.idFrame))
             trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
             trajectory.PrintTrajectory()
             

@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from tqdm import tqdm
 import ManualPoints
+import math
 # endregion
 
 
@@ -27,10 +28,10 @@ def ConfigDataLogger():
     
     return logging.getLogger('dataLogger')
         
-class Camera:        
-    def __init__(self, dataLogger, IndexCamera):
-        self.idCamera = IndexCamera
-        self.numFramesToLoad = 0
+class Camera:
+    def __init__(self, dataLogger):
+        self.idCamera = 0
+        self.numFramesToLoad = 2500
         # self.dataLogger = dataLogger
         self.filePath = f'Recursos/00/image_{self.idCamera}'
         # self.filePath = f'Recursos/Teste'
@@ -141,9 +142,8 @@ class GroundTruth:
         return self.poses
 
 class VisualOdometry (Camera):
-    def __init__(self, dataLogger, indexCamera, numFramestoLoad):
-        super().__init__(dataLogger, indexCamera)
-        self.numFramesToLoad = numFramestoLoad
+    def __init__(self, dataLogger):
+        super().__init__(dataLogger)
         self.LoadFrames()
         self.CalibrationFile()
         self.ResetCorners = 5
@@ -233,8 +233,8 @@ class VisualOdometry (Camera):
     def TrackingFutures(self):
         # Parameters for lucas kanade optical flow
         LucasKanadeParams = dict(winSize=(21, 21),  # Janela um pouco maior para capturar mais contexto
-                                 maxLevel=3,  # Considera mais níveis na pirâmide para lidar com movimentos maiores
-                                 criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 0.01))  # Critérios mais estritos para precisão             
+                                maxLevel=3,  # Considera mais níveis na pirâmide para lidar com movimentos maiores
+                                criteria=(cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS , 50, 0.01))  # Critérios mais estritos para precisão             
         
         if ( self.idFrame == self.idFramePreviuos + 5 ):
             self.idFramePreviuos = self.idFrame
@@ -259,11 +259,23 @@ class VisualOdometry (Camera):
         # self.dataLogger.info(f'\n featuresTracked ({self.idFrame}) \n {self.featuresTracked[self.idFrameTracked]}')
         return True
 
-    def MatrixEssencial(self):
+    def MatrixEssencial(self, absoluteScale):
         
-        self.essencialMatrix, mask = cv2.findEssentialMat(self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], self.intrinsicParameters, method = cv2.RANSAC, prob = 0.99, threshold = 0.1, maxIters = 100)
+        # self.essencialMatrix, mask = cv2.findEssentialMat(self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], self.intrinsicParameters, method = cv2.RANSAC, prob = 0.99, threshold = 0.1, maxIters = 100)
+        if( self.idFrame < 2):
+            self.essencialMatrix, mask = cv2.findEssentialMat(self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], 718.856, (607.1928, 185.2157), method = cv2.RANSAC, prob = 0.99, threshold = 0.1, maxIters = 100)
+            _, self.rotationMatrix, self.translationMatrix, _ = cv2.recoverPose( self.essencialMatrix, self.featuresTracked[self.idFrame - 1],
+                                                                                 self.featuresTracked[self.idFrame], self.rotationMatrix,
+                                                                                 self.translationMatrix, 718.856, (607.1928, 185.2157), None)
+            
+            self.essencialMatrix, mask = cv2.findEssentialMat(self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], 718.856, (607.1928, 185.2157), method = cv2.RANSAC, prob = 0.99, threshold = 0.1, maxIters = 100)
+            _, R, t, _ = cv2.recoverPose( self.essencialMatrix, self.featuresTracked[self.idFrame - 1],
+                                                                                 self.featuresTracked[self.idFrame], self.rotationMatrix.copy(),
+                                                                                 self.translationMatrix.copy(), 718.856, (607.1928, 185.2157), None)
 
-        self.DecomporMatrizEssencial()
+        if (absoluteScale > 0.1 and abs(self.translationMatrix[2][0]) > abs(self.translationMatrix[0][0]) and abs(self.translationMatrix[2][0]) > abs(self.translationMatrix[1][0])):
+            self.t = self.t + absoluteScale * self.R.dot(self.translationMatrix)
+            self.translationMatrix = R.dot(self.translationMatrix)
 
         # self.process_frame()
 
@@ -273,7 +285,8 @@ class VisualOdometry (Camera):
     
     def DecomporMatrizEssencial(self):
         # Recupera as matrizes de rotação e translação da matriz essencial
-        _, self.rotationMatrix, self.translationMatrix, _ = cv2.recoverPose( self.essencialMatrix, self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], self.intrinsicParameters)
+        # _, self.rotationMatrix, self.translationMatrix, _ = cv2.recoverPose( self.essencialMatrix, self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], self.intrinsicParameters)
+        _, self.rotationMatrix, self.translationMatrix, _ = cv2.recoverPose( self.essencialMatrix, self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], 718.856, (607.1928, 185.2157), None)
 
     def draw_epilines(self, img1, img2, ):
         """Desenha linhas epipolares para pontos correspondentes entre dois frames."""
@@ -424,6 +437,15 @@ class Plots:
         self.error.set_ylabel('Error')
         self.error.set_title('Error Between Grand troth and tranjectory')
 
+    def getAbsoluteScale(self, idFrame):
+        x1 = self.xValuesGroundTruth[idFrame - 1]
+        y1 = self.yValuesGroundTruth[idFrame - 1]
+        z1 = self.zValuesGroundTruth[idFrame - 1]
+        x2 = self.xValuesGroundTruth[idFrame]
+        y2 = self.yValuesGroundTruth[idFrame]
+        z2 = self.zValuesGroundTruth[idFrame]
+        return math.sqrt((x1-x2)**2 + (y1-y2)**2 + (z1-z2)**2)
+
     def PrintPlots(self):
 
         self.ax2d.plot(self.xValuesGroundTruth, self.zValuesGroundTruth, color = 'green', label='GroundTruth')
@@ -476,9 +498,19 @@ class Plots:
 
         if type is 'Trajectory':
             # multiply trajectory by -1 for inverte for really trajecotry
-            self.xValuesTrajectory.append(trajectory[0, 3] * (1))
-            self.yValuesTrajectory.append(trajectory[1, 3] * (-1))
-            self.zValuesTrajectory.append(trajectory[2, 3] * (-1))
+            x = trajectory[0, 3] * (-1)
+            y = trajectory[1, 3] * (1)
+            z = trajectory[2, 3] * (-1)
+            self.xValuesTrajectory.append(x)
+            self.yValuesTrajectory.append(y)
+            self.zValuesTrajectory.append(z)
+            
+            # Opening a file for appending the poinys
+            self.fileOutput = open("Resultados/OutputTrajectory.txt", "a")
+            self.fileOutput.write(f"{x} {y} {z}\n")
+            self.fileOutput.close()
+
+            # Log data
             # print(f"Trajectory : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
             # self.dataLogger.info(f"Trajectory : x: {trajectory[0, 3]},  y: {trajectory[1, 3]},  z: {trajectory[2, 3]}")
    
@@ -632,15 +664,14 @@ def mainTest():
     
     return
 
+
+
 def main():
     try:
-        idCamera = 0
-        numFramesToLoad = 500
-
         # instancias
         dataLogger = ConfigDataLogger()
         groundTruth = GroundTruth(dataLogger)
-        vo = VisualOdometry(dataLogger, idCamera, numFramesToLoad)
+        vo = VisualOdometry(dataLogger)
         trajectory = Trajectory(dataLogger, vo)
 
         vo.LoadFrames()
@@ -655,12 +686,13 @@ def main():
         vo.LoadFrames()
 
         for i in tqdm(range(len(vo.framesStored)- len(vo.featuresDetected))):
+            trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
             vo.TrackingFutures()
-            vo.MatrixEssencial()
+            vo.MatrixEssencial(trajectory.getAbsoluteScale( vo.idFrame ) )
             vo.PrintFrameMatches(vo.featuresTracked[vo.idFrame - 1], vo.featuresTracked[vo.idFrame])
             # vo.PrintEpipolarGeometry(vo.framesLoaded[vo.idFrame - 1], vo.framesLoaded[vo.idFrame], vo.essencialMatrix)
             
-            trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
+            
             trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
             trajectory.PrintTrajectory()
             

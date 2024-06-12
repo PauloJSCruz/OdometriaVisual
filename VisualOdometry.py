@@ -1,23 +1,14 @@
 # region Imports
-# from asyncio.windows_events import NULL
 import cv2
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')  # Use backend sem interface gráfica
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-# import pandas as pd
+import matplotlib.pylab as plt
+import pandas as pd
 import os
 import logging
+import sys
 from datetime import datetime
 from tqdm import tqdm
-import ManualPoints
-# from picamera2 import Picamera2
 # endregion
-
-
-pointsTestImage0 = ManualPoints.pointsTestImage0
-pointsTestImage1 = ManualPoints.pointsTestImage1
 
 def ConfigDataLogger():
     dataTimeNow = datetime.now()
@@ -30,38 +21,38 @@ def ConfigDataLogger():
                             level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     
     return logging.getLogger('dataLogger')
-        
+
 class Camera:
-    def __init__(self, dataLogger, IndexCamera):
-        self.idCamera = IndexCamera
-        self.numFramesToLoad = 0
-        # self.dataLogger = dataLogger
-        self.filePath = f'Recursos/00/image_{self.idCamera}'
-        # self.filePath = f'Recursos/Teste'
+    def __init__(self, dataLogger):
+        # Editable parameters
+        self.liveON = False
+        self.numFramesToLoad = 1000        
+        self.idCamera = 0
+        # end
+        self.dataLogger = dataLogger
         self.idFrame = 0
-        self.liveON = True
         self.framesStored = []
         self.framesLoaded = []
         self.intrinsicParameters = []
         self.projectionMatrix = []
         # self.picam2 = Picamera2()
         self.webCapture = cv2.VideoCapture(0)
+        self.recaptureFrame = False
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
         file = "CalibrationCam/calib.txt"
-
         try:
             with open(file) as fileCalib:
                 for line in fileCalib:
-                    if line.startswith(f"P{self.idCamera}:"):
+                    if (line.startswith(f"P{self.idCamera}:")):
                         # Extrai os números da linha, ignorando o identificador "P0:"
                         elementos = np.fromstring(line[3:], sep=' ', dtype=np.float64)
                         # Reorganiza os elementos para formar a matriz de projeção 3x4
-                        self.projectionMatrix = np.reshape(elementos, (3, 4))
+                        matrizProjecao = np.reshape(elementos, (3, 4))
                         # Extrai os parâmetros intrínsecos (as três primeiras colunas da matriz de projeção)
-                        self.intrinsicParameters = self.projectionMatrix[:, :3]
-                        print("Parâmetros intrínsecos:")
+                        self.intrinsicParameters = matrizProjecao[:, :3]
+                        print(f"Parâmetros intrínsecos camara {self.idCamera}:")
                         print(self.intrinsicParameters)
                         break  # Encerra o loop após processar a linha desejada
 
@@ -73,23 +64,20 @@ class Camera:
         # self.dataLogger.info(f'\nParâmetros Intrínsecos:\n{self.intrinsicParameters}')        
         # dataLogger.info(f'\n distortioncoefficient \n {distortioncoefficient}')
 
-    def SetupFrames(self):
-        if self.liveON is False:
-            framePath = [os.path.join(self.filePath, file) for file in sorted(os.listdir(self.filePath))][:self.numFramesToLoad]
-            self.framesStored = [cv2.imread(path) for path in framePath][:self.numFramesToLoad]
-            return print( '\n Frames Loaded \n')
-        
-        if self.liveON is True:
-            self.LiveCam()
-    
     def LoadFrames(self):
-        if self.liveON is False:
-            self.framesLoaded.append(self.framesStored[self.idFrame])
-            self.idFrame = len(self.framesLoaded) - 1
-            self.PrintFrame()
-            return 
+        self.filePath = f'Recursos/00/image_{self.idCamera}'
+        if (self.liveON == False):
+            if ( len(self.framesStored) == 0):
+                framePath = [os.path.join(self.filePath, file) for file in sorted(os.listdir(self.filePath))][:self.numFramesToLoad]
+                self.framesStored = [cv2.imread(path) for path in framePath][:self.numFramesToLoad]
+                return print( '\n Frames Loaded \n')
+            else:
+                self.framesLoaded.append(self.framesStored[self.idFrame])
+                self.idFrame = len(self.framesLoaded) - 1
+                self.PrintFrame()
+                return 
 
-        if self.liveON is True:
+        if (self.liveON == True):
             # Capture new frame
             self.LiveCam()
             self.idFrame = len(self.framesLoaded) - 1
@@ -108,7 +96,7 @@ class Camera:
             return -1
     
     def CreateVideoWithDataSetFrames(self, numFrames):
-        if os.path.exists("Recursos/KittiVideo.mp4") is False:
+        if (os.path.exists("Recursos/KittiVideo.mp4") == False):
             numFramesVideo = numFrames
             imagesDir = "Recursos/00/image_2"
             listImages = sorted(os.listdir(imagesDir))
@@ -118,7 +106,7 @@ class Camera:
             height, width, _ = firstImage.shape
             fps = 30
             # Criar o objeto VideoWriter
-            videoWrite = cv2.VideoWriter("Recursos/KittiVideo.mp4", cv2.VideoWriter_fourcc('m', 'p', '4', 'v'), fps, (width, height))
+            videoWrite = cv2.VideoWriter("Recursos\\KittiVideo.mp4", cv2.VideoWriter_fourcc('m', 'p', '4', 'v'), fps, (width, height))
             # Iterar sobre todas as imagnes e gravar no videoWriter
             for listImage in listImages:
                 image = cv2.imread(os.path.join(imagesDir, listImage))
@@ -131,12 +119,7 @@ class Camera:
 
     def LiveCam(self):
         # Live
-        ret, frameCaptured = self.webCapture.read()
-        if not ret:
-            print("Erro: Não foi possível capturar o frame.")
-            return
-        cv2.imshow('Live Frame', frameCaptured)    
-        self.framesLoaded.append( frameCaptured )
+        self.framesLoaded.append( cv2.VideoCapture(0) )
 
     def PrintFrame(self):
         cv2.imshow('Frame', self.framesLoaded[self.idFrame])
@@ -146,23 +129,19 @@ class Camera:
 
 class GroundTruth:    
     def __init__(self, dataLogger):
-        with open('Recursos/data_odometry_poses/dataset/poses/00.txt', 'r') as file:
-            self.posesReaded = np.loadtxt(file, delimiter=' ', dtype=float)
-            return
-            # self.posesReaded = list(reader)
-        # self.posesReaded = pd.read_csv( f'Recursos/data_odometry_poses/dataset/poses/00.txt' , delimiter= ' ' , header= None ) 
+        self.posesReaded = pd.read_csv( f'Recursos\\data_odometry_poses\\dataset\\poses\\00.txt' , delimiter= ' ' , header= None ) 
+        # print ( 'Tamanho do dataframe de pose:' , poses.shape) 
+        # print(f'posesReaded: {self.posesReaded.head()}\n')
+        self.poses = (np.array(self.posesReaded.iloc[0]).reshape((3, 4)))
         
     def GetPose(self, dataLogger, idFrame):
-        self.poses = (np.array(self.posesReaded[idFrame]).reshape((3, 4)))
+        self.poses = (np.array(self.posesReaded.iloc[idFrame]).reshape((3, 4)))
         dataLogger.info(f'\n Ground Truth idFrame({idFrame}) : \n {self.poses}')
         return self.poses
 
 class VisualOdometry (Camera):
-    def __init__(self, dataLogger, indexCamera, numFramestoLoad):
-        super().__init__(dataLogger, indexCamera)
-        self.numFramesToLoad = numFramestoLoad
-        self.LoadFrames()
-        self.CalibrationFile()
+    def __init__(self, dataLogger):
+        super().__init__(dataLogger)
         self.ResetCorners = 5
         # self.dataLogger = dataLogger
         self.featuresDetected = []
@@ -171,244 +150,190 @@ class VisualOdometry (Camera):
         self.essencialMatrix = []
         self.rotationMatrix = []
         self.translationMatrix = []
-        if(len(self.framesStored) ==  0):
-            self.mask = np.zeros_like(self.framesLoaded[0])
-            self.framesLoaded = []
-        if(len(self.framesStored) >  0):
-            self.mask = np.zeros_like(self.framesStored[0])
-        # Analized needed
-        self.firstFrame = []
-        self.featuresTrackedReset = False
         self.idFramePreviuos = 0
-        self.idFrameTracked = 0
+        self.mask = []
 
         # Cria o objeto FAST com parâmetros específicos
         self.fastDetector = cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True, type=2 )
-         
-    def FrameProcess(self, frame):
-        # FrameWidth = 1024
-        # FrameHeight = 700
+
+    def FrameProcess(self):
         # frame = cv2.resize(frame, (FrameWidth, FrameHeight))
         # Convert Frame RGB on Gray scale
-        frameProcessedGray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-        # Applying the canny algorithm
-        frameProcessedCanny = cv2.Canny(frameProcessedGray, 252, 255, None, 3)
-        # frameProcessedCanny = frameProcessedGray
-        cv2.imshow('Combined Frames', frameProcessedCanny)
-        return frameProcessedCanny
+        frameGray = cv2.cvtColor(self.framesLoaded[self.idFrame], cv2.COLOR_BGR2GRAY)        
+        
+        frameFiltered = frameGray
+        # frameFiltered = self.BandPassFilter(frameGray)
+        # tamanho_kernel = (7, 7)
+        # desvio_padrao = 12  # Valor maior para mais desfoque
+        # frameFiltered = cv2.GaussianBlur(frameGray, tamanho_kernel, desvio_padrao)
 
-    def DetectingFutures(self):
-        # Parâmetros do detector de cantos Shi-Tomasi
-        ShiTomasiParams = dict(maxCorners=500, # Number maximum to detect conrners
-                               qualityLevel=0.6,
-                               minDistance=5,
-                               blockSize=5)
-         
-        if (self.framesLoaded[self.idFrame] != 0 ):
-            keypointsDetected = cv2.goodFeaturesToTrack(self.FrameProcess(self.framesLoaded[self.idFrame]), mask=None, **ShiTomasiParams, useHarrisDetector=True, k=0.04)
-            # keypointsDetected = keypointsDetected.astype(np.int32)
-            self.featuresDetected.append(keypointsDetected)
+        # self.PrintCustomFrame(frameFiltered)
+        return frameFiltered
+    
+    def DetectingFeaturesFASTMethod(self):
+        # Checks if the current frame is loaded
+        if (self.framesLoaded[self.idFrame] is not None):
+            
+            # Converts the image to grayscale
+            frameProcessed = self.FrameProcess()
+            
+            # Finds the points of interest using the FAST detector
+            keypoints = self.fastDetector.detect(frameProcessed, None)
 
-            idfeaturesTracked = len(self.featuresDetected) - 1
+            # Keeps only the points with a better response
+            # keypoints = [ kp for kp in keypoints if kp.response > 50 ]
 
-        if self.idFrame == 0:
-            self.featuresTracked.append(self.featuresDetected[idfeaturesTracked])
-        else:
-            self.featuresTracked[self.idFrame - 1] = self.featuresDetected[idfeaturesTracked]
+            # Draw keypoints on the image
+            # frameWithKeypoints = cv2.drawKeypoints(self.framesLoaded[self.idFrame], keypoints, None, color=(0, 255, 0), flags=0)
 
-        # self.dataLogger.info(f'\n featuresDetected ({idfeaturesTracked}) \n {self.featuresDetected[idfeaturesTracked]}')
+            # Converts the keypoints to a numpy array
+            keypoints = np.array([kp.pt for kp in keypoints], dtype=np.float32)
             
-    def DetectingFeaturesFastMethod(self):
-        # Verifica se o frame atual está carregado
-        if self.framesLoaded[self.idFrame] is not None:
+            # Adds the detected keypoints to the feature list
+            self.featuresDetected.append(keypoints)
             
-            # Converte a imagem para escala de cinza
-            frame_gray = cv2.cvtColor(self.framesLoaded[self.idFrame], cv2.COLOR_BGR2GRAY)
-            self.PrintCustomFrame(frame_gray)
-            
-            # Encontra os pontos de interesse usando o detector FAST
-            keypoints = self.fastDetector.detect(frame_gray, None)
-            
-            # Converte os keypoints para um array numpy
-            keypoints_np = np.array([kp.pt for kp in keypoints], dtype=np.float32)
-            
-            # Adiciona os keypoints detectados à lista de características
-            self.featuresDetected.append(keypoints_np)
-            
-            # Determina o índice das características detectadas para este frame
+            # Determines the index of the detected features for this frame
             idfeaturesDetected = len(self.featuresDetected) - 1
             
-            # Se este é o primeiro frame, inicializa featuresTracked com as características detectadas
-            # Para outros frames, atualiza featuresTracked com as novas características detectadas
+            # If this is the first frame, initializes featuresTracked with the detected features
+            # For other frames, updates featuresTracked with the new detected features
             if self.idFrame == 0:
                 self.featuresTracked.append(self.featuresDetected[idfeaturesDetected])
             else:
-                # Ajuste: Isso atualiza o valor para o frame atual
+                # Adjustment: This updates the value for the current frame
                 self.featuresTracked[self.idFrame - 1] = self.featuresDetected[idfeaturesDetected]
             
-            # A linha comentada abaixo sugere que você está tentando logar as características detectadas.
-            # Certifique-se de que dataLogger está definido corretamente e descomente a linha abaixo, se necessário.
-            # self.dataLogger.info(f'\n featuresDetected ({idfeaturesDetected}) \n {self.featuresDetected[idfeaturesDetected]}')
-    
+            # Log of the detected points
+            self.dataLogger.info(f'\n featuresDetected ({idfeaturesDetected}) \n {self.featuresDetected[idfeaturesDetected]}')
+
     def TrackingFutures(self):
-        # Parameters for lucas kanade optical flow
-        LucasKanadeParams = dict(winSize=(21, 21),  # Janela um pouco maior para capturar mais contexto
-                                 maxLevel=3,  # Considera mais níveis na pirâmide para lidar com movimentos maiores
-                                 criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 0.01))  # Critérios mais estritos para precisão             
+        # Parameters for Lucas-Kanade optical flow
+        LucasKanadeParams = dict(winSize=(21, 21),  # Slightly larger window to capture more context
+                                 maxLevel=3,  # Considers more levels in the pyramid to handle larger movements
+                                 criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 0.01))  # Stricter criteria for accuracy             
         
-        if ( self.idFrame == self.idFramePreviuos + 5 ):
+        if ( (self.idFrame == self.idFramePreviuos + 5) or (len(self.featuresTracked[self.idFrame - 1]) < 10)):
             self.idFramePreviuos = self.idFrame
-            self.DetectingFeaturesFastMethod()
+            self.DetectingFeaturesFASTMethod()
+            while (len(self.featuresTracked[self.idFrame - 1]) < 5):
+                    self.recaptureFrame = True
+                    self.LoadFrames()
+                    self.idFrame = self.idFramePreviuos
+                    self.DetectingFeaturesFASTMethod()
             # self.DetectingFutures()
-            self.featuresTrackedReset = True
             self.mask = np.zeros_like(self.framesLoaded[0])
             # print("\n Features Tracked = Features Detected")
-        else:
-            self.featuresTrackedReset = False
+        
+        # Optical Flow only with previously detected features
+        opticalFlow, status, _err = cv2.calcOpticalFlowPyrLK(self.framesLoaded[self.idFrame - 1], self.framesLoaded[self.idFrame],
+                                                             self.featuresTracked[self.idFrame - 1], None, **LucasKanadeParams)
 
-        # Optical Flow only with previous features detected
-        opticalFlow, status, _err = cv2.calcOpticalFlowPyrLK( self.framesLoaded[self.idFrame - 1], self.framesLoaded[self.idFrame],
-                                                               self.featuresTracked[self.idFrame - 1] , None, **LucasKanadeParams)
-
-        # Remove os pontos que não tiveram correspondência no featuresTracked atual
+        # Removes points that did not match in the current featuresTracked
         self.featuresTracked[self.idFrame - 1] = self.featuresTracked[self.idFrame - 1][status[:, 0] == 1]
+        newFeatures = opticalFlow[status[:, 0] == 1]
+        # Save only new corners that have matched
+        self.featuresTracked.append(opticalFlow[status[:, 0] == 1]) 
 
-        # Save only newCorners that have done match
-        self.featuresTracked.append(opticalFlow[status[:, 0] == 1])       
+        # self.FramesOverlapping(self.DrawFeaturesTracked(newFeatures, self.featuresTracked[self.idFrame - 1]))  
         
-        # self.dataLogger.info(f'\n featuresTracked ({self.idFrame}) \n {self.featuresTracked[self.idFrameTracked]}')
+        self.dataLogger.info(f'\n featuresTracked ({self.idFrame}) \n {self.featuresTracked[self.idFrame]}')
         return True
-
-    def MatrixEssencial(self):
-        
-        self.essencialMatrix, mask = cv2.findEssentialMat(self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], self.intrinsicParameters, method = cv2.RANSAC, prob = 0.99, threshold = 0.1, maxIters = 100)
-
-        self.DecomporMatrizEssencial()
-
-        # self.process_frame()
-
-        # self.dataLogger.info(f'\n matrizEssencial \n {self.essencialMatrix}')
-        # self.dataLogger.info(f'\n rotation \n {self.rotationMatrix}')
-        # self.dataLogger.info(f'\n essencialMatrixTranslation \n {self.translationMatrix}')
     
-    def DecomporMatrizEssencial(self):
-        # Recupera as matrizes de rotação e translação da matriz essencial
-        _, self.rotationMatrix, self.translationMatrix, _ = cv2.recoverPose( self.essencialMatrix, self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame], self.intrinsicParameters)
-
-    def draw_epilines(self, img1, img2, ):
-        """Desenha linhas epipolares para pontos correspondentes entre dois frames."""
-        # Converter para cores se as imagens forem em escala de cinza
-        img1 = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR) if img1.ndim == 2 else img1
-        img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR) if img2.ndim == 2 else img2
-        
-        # Calcular linhas epipolares nos dois frames
-        lines1 = cv2.computeCorrespondEpilines(self.featuresTracked[self.idFrame].reshape(-1, 1, 2), 2, self.essencialMatrix)
-        lines1 = lines1.reshape(-1, 3)
-        lines2 = cv2.computeCorrespondEpilines(self.featuresTracked[self.idFrame - 1].reshape(-1, 1, 2), 1, self.essencialMatrix)
-        lines2 = lines2.reshape(-1, 3)
-        
-        # Desenhar as linhas nos frames
-        for r, pt1, pt2 in zip(lines1, self.featuresTracked[self.idFrame - 1], self.featuresTracked[self.idFrame]):
-            color = tuple(np.random.randint(0, 255, 3).tolist())
-            x0, y0 = map(int, [0, -r[2]/r[1] ])
-            x1, y1 = map(int, [img1.shape[1], -(r[2]+r[0]*img1.shape[1])/r[1] ])
-            img1 = cv2.line(img1, (x0, y0), (x1, y1), color, 1)
-            img1 = cv2.circle(img1, tuple(pt1), 5, color, -1)
-        for r, pt1, pt2 in zip(lines2, self.featuresTracked[self.idFrame], self.featuresTracked[self.idFrame - 1]):
-            color = tuple(np.random.randint(0, 255, 3).tolist())
-            x0, y0 = map(int, [0, -r[2]/r[1] ])
-            x1, y1 = map(int, [img2.shape[1], -(r[2]+r[0]*img2.shape[1])/r[1] ])
-            img2 = cv2.line(img2, (x0, y0), (x1, y1), color, 1)
-            img2 = cv2.circle(img2, tuple(pt2), 5, color, -1)
-            
-        return img1, img2
-
-    def DrawFeaturesTracked(self):
-        # Desenhar as linhas que representam o fluxo optico nos quadros
-        idFrameTracked = self.idFrame - 1
-        # self.mask = np.zeros_like(self.framesLoaded[0])
-        for i, (new, old) in enumerate(zip(self.featuresTracked[idFrameTracked], self.featuresTracked[idFrameTracked - 1])):
-            a, b = new.ravel()
-            c, d = old.ravel()
-            a, b, c, d = int(a), int(b), int(c), int(d)  # Convert to integers
+    def DrawFeaturesTracked(self, new_features, old_features):
+        for new, old in zip(new_features, old_features):
+            a, b = int(new[0]), int(new[1])  # Converte para inteiros
+            c, d = int(old[0]), int(old[1])  # Converte para inteiros            
             self.mask = cv2.line(self.mask, (a, b), (c, d), (0, 255, 0), 1)
-            circle = cv2.circle(self.framesLoaded[idFrameTracked], (a, b), 2, (0, 0, 255), 2)
+            circle = cv2.circle(self.framesLoaded[self.idFrame], (a, b), 2, (0, 0, 255), 2)
             frameMask = cv2.add(circle, self.mask)
-            cv2.imshow('Matchs On Frame', frameMask)
-        return True
+        return frameMask
+
+    def CalculateEssentialMatrix(self):
+        # Calculates the essential matrix using the tracked features
+        self.essentialMatrix, mask = cv2.findEssentialMat(self.featuresTracked[self.idFrame], self.featuresTracked[self.idFrame - 1],
+                                                          self.intrinsicParameters, method=cv2.RANSAC, prob=0.99, threshold=0.1, maxIters=100)
+        
+        if ((self.essentialMatrix is not None) and (len(self.essentialMatrix) == 3)):
+            self.DecomposeEssentialMatrix()  # Decomposes the essential matrix to extract rotation and translation
+
+            self.dataLogger.info(f'\n essentialMatrix \n {self.essentialMatrix}')
+            self.dataLogger.info(f'\n rotation \n {self.rotationMatrix}')
+            self.dataLogger.info(f'\n essentialMatrixTranslation \n {self.translationMatrix}')
     
-    def PrintEpipolarGeometry(self, frame1, frame2, essential_matrix):
-        # Decompose the essential matrix to get the fundamental matrix
-        _, fundamental_matrix, _ = cv2.SVDecomp(essential_matrix)
+    def DecomposeEssentialMatrix(self):
+        # Retrieves the rotation and translation matrices from the essential matrix
+        _, self.rotationMatrix, self.translationMatrix, _ = cv2.recoverPose(self.essentialMatrix, self.featuresTracked[self.idFrame], self.featuresTracked[self.idFrame - 1], self.intrinsicParameters)
 
-        idFrameTracked = self.idFrame - 1
+    def FundamentalMatrix(self, E, K):
+        """ Calcula a matriz fundamental a partir da matriz essencial e dos parâmetros intrínsecos da câmera.
 
-        # Ensure that both frames are in grayscale
-        frame1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
-        frame2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
+        Args:
+        E (np.array): Matriz essencial.
+        K (np.array): Matriz dos parâmetros intrínsecos da câmera.
 
-        # Detect features in both frames
-        features1 = self.featuresTracked[self.idFrame - 1]
-        features2 = self.featuresTracked[self.idFrame]
+        Returns:
+        F (np.array): Matriz fundamental.
+        """
+        K_inv = np.linalg.inv(K)
+        F = K_inv.T @ E @ K_inv
+        return F
 
-        # Draw epipolar lines on both frames
-        lines2 = cv2.computeCorrespondEpilines(features1.reshape(-1, 1, 2), 1, fundamental_matrix)
-        lines2 = lines2.reshape(-1, 3)
-        lines1 = cv2.computeCorrespondEpilines(features2.reshape(-1, 1, 2), 2, fundamental_matrix)
+    def DrawEpipolarLines(self, img1, img2, points1, points2, F):
+        """Desenha linhas epipolares e pontos correspondentes entre duas imagens baseadas na matriz fundamental.
+
+        Args:
+        img1, img2 (np.array): Imagens nas quais as linhas epipolares serão desenhadas.
+        points1, points2 (np.array): Pontos correspondentes nas imagens.
+        F (np.array): Matriz fundamental.
+
+        Returns:
+        img1, img2 (np.array): Imagens com linhas e pontos desenhados.
+        """
+        # Linhas na primeira imagem
+        lines1 = cv2.computeCorrespondEpilines(points2.reshape(-1, 1, 2), 2, F)
         lines1 = lines1.reshape(-1, 3)
+        img1_color = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR) if img1.ndim == 2 else img1.copy()
 
-        frame1_with_lines = cv2.cvtColor(frame1, cv2.COLOR_GRAY2BGR)
-        frame2_with_lines = cv2.cvtColor(frame2, cv2.COLOR_GRAY2BGR)
-
-        for r, pt1, pt2 in zip(lines2, self.featuresTracked[idFrameTracked], self.featuresTracked[idFrameTracked - 1]):
+        for r, pt in zip(lines1, points1):
             color = tuple(np.random.randint(0, 255, 3).tolist())
-            x0, y0 = map(int, [0, -r[2]/r[1]])
-            x1, y1 = map(int, [frame1.shape[1], -(r[0]*frame1.shape[1]+r[2])/r[1]])
-            frame1_with_lines = cv2.line(frame1_with_lines, (x0, y0), (x1, y1), color, 2)
-            frame1_with_lines = cv2.circle(frame1_with_lines, (x0, y0), 2, color, -1)
-            frame2_with_lines = cv2.circle(frame2_with_lines, (x1, y1), 2, color, -1)
+            x0, y0 = map(int, [0, -r[2]/r[1] ])
+            x1, y1 = map(int, [img1.shape[1], -(r[2]+r[0]*img1.shape[1])/r[1]])
+            img1_color = cv2.line(img1_color, (x0, y0), (x1, y1), color, 1)
+            img1_color = cv2.circle(img1_color, tuple(pt), 5, color, -1)
 
-        for r, pt1, pt2 in zip(lines1, features2, features1):
+        # Linhas na segunda imagem
+        lines2 = cv2.computeCorrespondEpilines(points1.reshape(-1, 1, 2), 1, F)
+        lines2 = lines2.reshape(-1, 3)
+        img2_color = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR) if img2.ndim == 2 else img2.copy()
+
+        for r, pt in zip(lines2, points2):
             color = tuple(np.random.randint(0, 255, 3).tolist())
-            x0, y0 = map(int, [0, -r[2]/r[1]])
-            x1, y1 = map(int, [frame2.shape[1], -(r[0]*frame2.shape[1]+r[2])/r[1]])
+            x0, y0 = map(int, [0, -r[2]/r[1] ])
+            x1, y1 = map(int, [img2.shape[1], -(r[2]+r[0]*img2.shape[1])/r[1]])
+            img2_color = cv2.line(img2_color, (x0, y0), (x1, y1), color, 1)
+            img2_color = cv2.circle(img2_color, tuple(pt), 5, color, -1)
 
-            frame2_with_lines = cv2.line(frame2_with_lines, (x0, y0), (x1, y1), color, 2)
-            frame2_with_lines = cv2.circle(frame2_with_lines, (x0, y0), 2, color, -1)
-            frame1_with_lines = cv2.circle(frame1_with_lines, (x1, y1), 2, color, -1)
-  
-        # Display the frames with epipolar lines
-        # cv2.imshow('Epipolar Lines', cv2.hconcat([frame1_with_lines, frame2_with_lines]) )
+        return img1_color, img2_color
+    
+    def FramesOverlapping(self, newFrame,):    
+        # Converte ambas as imagens para escala de cinza
+        grayFrameOld = cv2.cvtColor(self.framesLoaded[self.idFrame - 1], cv2.COLOR_BGR2GRAY)
+        # O frame atual mantém suas cores para preservar os gráficos coloridos
+        colorFrameNew = newFrame
 
-    def PrintFrameMatches(self, prevFeaturesTracked, featuresTracked):
-            # Definir a largura e altura desejadas do frame
-            # FrameWidth = 1680
-            # FrameHeight = 700
-            combined_frame = cv2.hconcat((self.framesLoaded[self.idFrame - 1], self.framesLoaded[self.idFrame]))
-            # Desenhar uma linha entre os pontos nos quadros atual e anterior
-            if featuresTracked is not None:
-                for i in range(len(featuresTracked)):
-                    prev_pt = tuple(map(int, prevFeaturesTracked[i].ravel()))
-                    current_pt = tuple(map(int, prevFeaturesTracked[i].ravel()))
+        # Cria o anaglifo usando o frame em escala de cinza e os canais de cores do frame atual
+        # Este passo assume que você quer um efeito visual usando o vermelho do frame anterior e verde/azul do novo
+        anaglyphFrame = cv2.merge((grayFrameOld, colorFrameNew[:,:,1], colorFrameNew[:,:,2]))
 
-                    # Gerar uma cor RGB aleatoria
-                    color = tuple(np.random.randint(0, 255, 3).tolist())
-                    # Desenhar a linha com a cor aleatoria no quadro combinado
-                    # cv2.line(combined_frame, prev_pt, (current_pt[0] + self.framesLoaded[self.idFrame - 1].shape[1], current_pt[1]), color, 1)
-                    # Desenhar circulos sem preenchimento nas extremidades da linha
-                    cv2.circle(combined_frame, prev_pt, 1, color, -1)
-                    cv2.circle(combined_frame, (current_pt[0] + self.framesLoaded[self.idFrame - 1].shape[1], current_pt[1]), 1, color, -1)
-
-                    # Rodar e Redimensionar o frame para a largura e altura desejadas
-                    # combined_frame = cv2.resize(combined_frame, (FrameWidth, FrameHeight))
-                # cv2.imshow('Combined Frames', combined_frame)
+        # Add the number of detected corners to the image
+        text = f"Number of corners: {len(self.featuresTracked[self.idFrame])}"
+        cv2.putText(anaglyphFrame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        self.PrintCustomFrame(anaglyphFrame)
 
 class Plots:
     def __init__(self, dataLogger):
-        # self.dataLogger = dataLogger
+        self.dataLogger = dataLogger
         self.numPlots = 0
-        # Corrigir 
-
         self.xValuesGroundTruth = []
         self.yValuesGroundTruth = []
         self.zValuesGroundTruth = []
@@ -419,10 +344,6 @@ class Plots:
         self.errorY = []
         self.errorZ = []
         self.errorIDs = []
-        
-        # Opening a file for appending the poinys
-        self.fileOutput = open("Resultados/OutputTrajectory.txt", "w")
-        self.fileOutput.close()
 
         # self.fig, self.ax = plt.subplots()
         self.fig3d = plt.figure()
@@ -474,8 +395,8 @@ class Plots:
         self.ShowPlot()
 
     def ShowPlot(self):
-        if self.numPlots > 0:
-            if self.numPlots is 1:     
+        if (self.numPlots > 0):
+            if (self.numPlots == 1):     
                 self.ax2d.legend()
                 self.ax3d.legend()
                 self.error.legend()
@@ -490,19 +411,18 @@ class Plots:
     def AddPointsToAxis(self, trajectory, type):
         # Function to plot the trajectory
 
-        if type is 'GroundTruth':
+        if (type == 'GroundTruth'):
             self.xValuesGroundTruth.append(trajectory[0, 3])
             self.yValuesGroundTruth.append(trajectory[1, 3])
             self.zValuesGroundTruth.append(trajectory[2, 3])
             # print(f"GroundTruth : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
             # self.dataLogger.info(f"GroundTruth : x: {trajectory[0, 3]}, y: {trajectory[1, 3]},  z: {trajectory[2, 3]}" )
 
-
-        if type is 'Trajectory':
+        if (type == 'Trajectory'):
             # multiply trajectory by -1 for inverte for really trajecotry
             x = trajectory[0, 3] * (1)
-            y = trajectory[1, 3] * (-1)
-            z = trajectory[2, 3] * (-1)
+            y = trajectory[1, 3] * (1)
+            z = trajectory[2, 3] * (1)
             self.xValuesTrajectory.append(x)
             self.yValuesTrajectory.append(y)
             self.zValuesTrajectory.append(z)
@@ -511,17 +431,14 @@ class Plots:
             self.fileOutput = open("Resultados/OutputTrajectory.txt", "a")
             self.fileOutput.write(f"{x} {y} {z}\n")
             self.fileOutput.close()
-
-            # Log data
-            # print(f"Trajectory : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
+            
             # self.dataLogger.info(f"Trajectory : x: {trajectory[0, 3]},  y: {trajectory[1, 3]},  z: {trajectory[2, 3]}")
    
 class Trajectory (Plots):
     def __init__(self, dataLogger, vo_instance):
         super().__init__(dataLogger)
         self.vo = vo_instance
-        # self.dataLogger = dataLogger
-        # self.trajectory = []
+        self.dataLogger = dataLogger
         self.allPointsTrajectory = []
         self.trajectory = np.identity(4)
         
@@ -602,82 +519,55 @@ class Trajectory (Plots):
         # endregion
 
     def GetTrajectory(self):
-        # self.trajectory = np.array([[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 100.0]])
-        # A posição é dada por
-        # 𝐶𝑛 = 𝐶𝑛−1𝑇𝑛
-        # A posição e orientação da câmera no instante n é dada por
-        # 𝐶𝑛 = 𝑅𝑛,𝑛−1𝐶𝑛−1 + 𝑇𝑛,𝑛−1
+        # The position is given by
+        # C_n = C_(n-1) * T_n
+        # The camera's position and orientation at time n is given by
+        # C_n = R_(n,n-1) * C_(n-1) + T_(n,n-1)
         
-        # TkHomogeneous = np.eye(4)
-        # TkHomogeneous[:3, :3] = self.vo.rotationMatrix
-        # TkHomogeneous[:3, 3] = self.vo.translationMatrix.ravel()
-        # self.trajectory = self.trajectory @ TkHomogeneous # Matrix Multiplication
+        self.pos = self.pos + self.rot @ self.vo.translationMatrix  # Update the position using translation matrix
+        self.rot = self.rot @ self.vo.rotationMatrix  # Update the rotation using rotation matrix
+        self.trajectory = cv2.hconcat([self.rot, self.pos])  # Concatenates rotation and position to form the trajectory matrix
 
-        # self.trajectory[:3, 3] = self.vo.estimatedState[:3, 0].ravel()
-        
-        self.pos = self.pos + self.rot @ self.vo.translationMatrix
-        self.rot = self.rot @ self.vo.rotationMatrix
-        self.trajectory = cv2.hconcat([self.rot, self.pos])
-
-        # self.dataLogger.info(f'\n trajectory \n {self.trajectory}')
-        # print(self.trajectory)
-        
+        # self.dataLogger.info(f'\n trajectory \n {self.trajectory}')        
         return self.trajectory
-
-def mainTest():
-    idCamera = 0
-    numFramesToLoad = 10
-
-    dataLogger = ConfigDataLogger()
-
-    # frames = Camera(dataLogger, idCamera)
-    groundTruth = GroundTruth(dataLogger)
-    vo = VisualOdometry(dataLogger, idCamera, numFramesToLoad)
-    trajectory = Trajectory(dataLogger, vo)
-
-    # region TESTE
-    # trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
-    # trajectory.AddPointsToAxis(np.array([[0.0, 0.0, 0.0, 50.0], [0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 100.0]]), trajectory.typeTrajectory)
-    # trajectory.AddPointsToAxis(np.array([[0.0, 0.0, 0.0, -50.0], [0.0, 0.0, 0.0, 10.0], [0.0, 0.0, 0.0, 150.0]]), trajectory.typeTrajectory)
-    # trajectory.AddPointsToAxis(np.array([[0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 15.0], [0.0, 0.0, 0.0, 200.0]]), trajectory.typeTrajectory)
-    # endregion 
-
-    vo.LoadFrames()
-
-    vo.featuresTracked.append(pointsTestImage0)
-    vo.featuresTracked.append(pointsTestImage1)
-
-    vo.MatrixEssencial()
-
-    trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, 0), trajectory.typeGroundTruth)
-    trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, 1), trajectory.typeGroundTruth)
-    trajectory.AddPointsToAxis(trajectory.trajectory, trajectory.typeTrajectory)
-    trajectory.AddPointsToAxis(trajectory.GetTrajectory(vo.idFrame), trajectory.typeTrajectory)
-    trajectory.PrintTrajectory()
-    
-    vo.idFrame += 1
-    # for i in range(numFramesToLoad):
-    #     trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth)        
-    #     trajectory.PrintTrajectory()
-    #     vo.idFrame += 1
-    #     cv2.waitKey(1)
-    trajectory.PrintPlots()
-    # cv2.waitKey(0)
-    
-    return
 
 def main():
     try:
-        idCamera = 0
-        numFramesToLoad = 200
-
         # instancias
         dataLogger = ConfigDataLogger()
         groundTruth = GroundTruth(dataLogger)
-        vo = VisualOdometry(dataLogger, idCamera, numFramesToLoad)
+        vo = VisualOdometry(dataLogger)
         trajectory = Trajectory(dataLogger, vo)
 
-        vo.SetupFrames()
+        # Analisa os argumentos manualmente
+        for i in range(1, len(sys.argv), 2):
+            if sys.argv[i] == '-id':
+                vo.idCamera = int(sys.argv[i + 1])
+            elif sys.argv[i] == '-frames':
+                vo.numFramesToLoad = int(sys.argv[i + 1])
+            elif sys.argv[i] == '-live':
+                vo.liveON = bool(sys.argv[i + 1])
+            elif sys.argv[i] == '-help':
+                print("Flags:")
+                print("-id: Id form camera")
+                print("-numFrames: Number of frames that are load")
+                print("-live: True or False if the frames are capture from robot camera")
+                print("Struct: python meuprograma.py -id <idCamera> -numFrames <numFramesToLoad> -live <true>\n")
+                sys.exit(1)
+            else:
+                print(f"Argumento desconhecido: {sys.argv[i]}")
+                print("python meuprograma.py -id <idCamera> -numFrames <numFramesToLoad> -live <true>")
+                sys.exit(1)
+
+        if(vo.liveON == True):
+            vo.LoadFrames()
+            vo.mask = np.zeros_like(vo.framesLoaded[0])
+            vo.framesLoaded = []
+        if(vo.liveON == False):
+            vo.LoadFrames()
+            vo.mask = np.zeros_like(vo.framesStored[0])
+        
+        vo.CalibrationFile()
 
         # Start
         # 1st frame
@@ -685,39 +575,23 @@ def main():
         trajectory.AddPointsToAxis(trajectory.trajectory, trajectory.typeTrajectory) 
         trajectory.PrintTrajectory()
 
-        vo.DetectingFeaturesFastMethod()
-        vo.LoadFrames()
+        vo.LoadFrames()        
+        vo.DetectingFeaturesFASTMethod()
+        
+        vo.LoadFrames()   
 
-        if(vo.liveON == False):
-            for i in tqdm(range(len(vo.framesStored)- len(vo.featuresDetected))):
-                vo.TrackingFutures()
-                vo.MatrixEssencial()
-                vo.PrintFrameMatches(vo.featuresTracked[vo.idFrame - 1], vo.featuresTracked[vo.idFrame])
-                # vo.PrintEpipolarGeometry(vo.framesLoaded[vo.idFrame - 1], vo.framesLoaded[vo.idFrame], vo.essencialMatrix)
-                
-                trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
-                trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
-                trajectory.PrintTrajectory()
-                
-                # Load number of iterations            
-                vo.LoadFrames()
-                # vo.DrawFeaturesTracked()
-                cv2.waitKey(1)
-        else:
-            while(True):    
-                vo.TrackingFutures()
-                vo.MatrixEssencial()
-                vo.PrintFrameMatches(vo.featuresTracked[vo.idFrame - 1], vo.featuresTracked[vo.idFrame])
-                # vo.PrintEpipolarGeometry(vo.framesLoaded[vo.idFrame - 1], vo.framesLoaded[vo.idFrame], vo.essencialMatrix)
-                
-                trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
-                trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
-                trajectory.PrintTrajectory()
-                
-                # Load number of iterations            
-                vo.LoadFrames()
-                # vo.DrawFeaturesTracked()
-                cv2.waitKey(1)
+        for i in tqdm(range(len(vo.framesStored) - len(vo.featuresDetected))):
+            vo.TrackingFutures()
+            vo.CalculateEssentialMatrix()
+            
+            # scale = getAbsoluteScale(groundTruth.GetPose(dataLogger, vo.idFrame-1), groundTruth.GetPose(dataLogger, vo.idFrame))
+            trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
+            trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
+            trajectory.PrintTrajectory()
+                        
+            vo.LoadFrames()
+            # vo.DrawFeaturesTracked()
+            cv2.waitKey(1)
             
     # except IndexError:
     except MemoryError:
@@ -733,4 +607,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    # mainTest()

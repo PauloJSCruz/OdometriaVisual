@@ -1,13 +1,14 @@
 # region Imports
-# from asyncio.windows_events import NULL
 import cv2
 import numpy as np
 import matplotlib.pylab as plt
+import pandas as pd
 import os
 import logging
+import sys
 from datetime import datetime
 from tqdm import tqdm
-import sys
+import math
 # endregion
 
 def ConfigDataLogger():
@@ -40,6 +41,8 @@ class Camera:
         self.webCapture = cv2.VideoCapture(0)
         self.recaptureFrame = False
         self.prevTime = datetime.now()
+        self.frameHeight = 0 
+        self.frameWidth = 0
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
@@ -142,9 +145,10 @@ class Camera:
 
 class GroundTruth:    
     def __init__(self, dataLogger):
-        with open('Recursos/data_odometry_poses/dataset/poses/00.txt', 'r') as file:
-            self.posesReaded = np.loadtxt(file, delimiter=' ', dtype=float)
-            return
+        self.posesReaded = pd.read_csv( f'Recursos\\data_odometry_poses\\dataset\\poses\\00.txt' , delimiter= ' ' , header= None ) 
+        # print ( 'Tamanho do dataframe de pose:' , poses.shape) 
+        # print(f'posesReaded: {self.posesReaded.head()}\n')
+        self.poses = (np.array(self.posesReaded.iloc[0]).reshape((3, 4)))
         
     def GetPose(self, dataLogger, idFrame):
         self.poses = (np.array(self.posesReaded.iloc[idFrame]).reshape((3, 4)))
@@ -169,7 +173,6 @@ class VisualOdometry (Camera):
         self.fastDetector = cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True, type=2 )
 
     def FrameProcess(self):
-        # frame = cv2.resize(frame, (FrameWidth, FrameHeight))
         # Convert Frame RGB on Gray scale
         frameGray = cv2.cvtColor(self.framesLoaded[self.idFrame], cv2.COLOR_BGR2GRAY)        
         
@@ -260,8 +263,8 @@ class VisualOdometry (Camera):
         if self.idFrame < 1:
             return
 
-        newFrame = self.framesLoaded[self.idFrame].copy()
-        oldFrame = self.framesLoaded[self.idFrame - 1].copy()
+        newFrame = self.framesLoaded[self.idFrame]
+        oldFrame = self.framesLoaded[self.idFrame - 1]
         cv2.putText (newFrame, f'Frame: {self.idFrame}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA )
         cv2.putText (oldFrame, f'Frame: {self.idFrame - 1}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA )
 
@@ -290,30 +293,44 @@ class VisualOdometry (Camera):
 
     # Função para redimensionar a imagem mantendo a proporção
     def resizeImage(self, image, screenWidth, screenHeight):
-        # Obter as dimensões da imagem
-        imgHeight, imgWidth = image.shape[:2]
-
+        
         # Calcular a razão de redimensionamento mantendo a proporção
-        widthRatio = screenWidth / imgWidth
-        heightRatio = screenHeight / imgHeight
+        frameWidth = self.frameWidth * 2
+        widthRatio = screenWidth / frameWidth
+        heightRatio = screenHeight / self.frameHeight
         resizeRatio = min(widthRatio, heightRatio)
 
         # Calcular as novas dimensões
-        new_width = int(imgWidth * resizeRatio)
-        new_height = int(imgHeight * resizeRatio)
+        newWidth = int(frameWidth * resizeRatio)
+        newHeight = int(self.frameHeight * resizeRatio)
 
         # Redimensionar a imagem
-        resizedImage = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+        resizedImage = cv2.resize(image, (newWidth, newHeight), interpolation=cv2.INTER_AREA)
         
         return resizedImage
 
-    def DrawFeaturesTracked(self, newFeatures, oldFeatures):
+    def DrawFeaturesTracked(self, newFeatures, oldFeatures, numPoints = 5):
+        verticalRange = 100
+        # Filtre os pontos que estão dentro do intervalo vertical especificado
+        verticalFiltered = [point for point in oldFeatures if abs(point[1] - (self.frameHeight / 2)) < verticalRange] 
+
+        numPoints = min(numPoints, len(verticalFiltered))
+
+        # Selecione os primeiros 'numPoints' pontos do intervalo filtrado
+        selectedPoints = verticalFiltered[:numPoints]
+
+        # Obtenha os índices dos pontos selecionados na lista original de oldFeatures
+        indices = [np.where((oldFeatures == point).all(axis=1))[0][0] for point in selectedPoints]
+        
         currentFrame = self.framesLoaded[self.idFrame].copy()
-        for new, old in zip(newFeatures, oldFeatures):
-            a, b = int(new[0]), int(new[1])  # Converte para inteiros
-            c, d = int(old[0]), int(old[1])  # Converte para inteiros            
-            self.mask = cv2.line(self.mask, (a, b), (c, d), (0, 255, 0), 1)
-            circle = cv2.circle(currentFrame, (a, b), 2, (0, 0, 255), 2)
+
+        for i in indices:
+            p1 = self.featuresTracked[self.idFrame - 1][i]
+            p2 = self.featuresTracked[self.idFrame][i]
+            pt1 = (int(p1[0]), int(p1[1]))
+            pt2 = (int(p2[0]), int(p2[1]))           
+            self.mask = cv2.line(self.mask, pt1, pt2, (0, 255, 0), 1)
+            circle = cv2.circle(currentFrame, pt1, 2, (0, 0, 255), 2)
             frameMask = cv2.add(circle, self.mask)
         return frameMask
 
@@ -413,15 +430,13 @@ class VisualOdometry (Camera):
 
         return img1_color, img2_color
     
-    def FramesOverlapping(self, newFrame,):    
+    def FramesOverlapping(self, newFrame):    
         # Converte ambas as imagens para escala de cinza
         grayFrameOld = cv2.cvtColor(self.framesLoaded[self.idFrame - 1], cv2.COLOR_BGR2GRAY)
-        # O frame atual mantém suas cores para preservar os gráficos coloridos
-        colorFrameNew = newFrame
 
         # Cria o anaglifo usando o frame em escala de cinza e os canais de cores do frame atual
         # Este passo assume que você quer um efeito visual usando o vermelho do frame anterior e verde/azul do novo
-        anaglyphFrame = cv2.merge((grayFrameOld, colorFrameNew[:,:,1], colorFrameNew[:,:,2]))
+        anaglyphFrame = cv2.merge((grayFrameOld, newFrame[:,:,1], newFrame[:,:,2]))
 
         # Add the number of detected corners to the image
         text = f"Number of corners: {len(self.featuresTracked[self.idFrame])}"
@@ -442,7 +457,6 @@ class Plots:
         self.errorY = []
         self.errorZ = []
         self.errorIDs = []
-        self.trajectoryPath = "Resultados/OutputTrajectory.txt"
 
         # self.fig, self.ax = plt.subplots()
         self.fig3d = plt.figure()
@@ -519,17 +533,17 @@ class Plots:
 
         if (type == 'Trajectory'):
             # multiply trajectory by -1 for inverte for really trajecotry
-            x = trajectory[0]
-            y = trajectory[1]
-            z = trajectory[2]
+            x = trajectory[0, 3] * (1)
+            y = trajectory[1, 3] * (1)
+            z = trajectory[2, 3] * (1)
             self.xValuesTrajectory.append(x)
             self.yValuesTrajectory.append(y)
             self.zValuesTrajectory.append(z)
             
-            # # Opening a file for appending the poinys
-            # self.fileOutput = open(self.trajectoryPath, "a")
-            # self.fileOutput.write(f"{x} {y} {z}\n")
-            # self.fileOutput.close()
+            # Opening a file for appending the poinys
+            self.fileOutput = open("Resultados/OutputTrajectory.txt", "a")
+            self.fileOutput.write(f"{x} {y} {z}\n")
+            self.fileOutput.close()
             
             # self.dataLogger.info(f"Trajectory : x: {trajectory[0, 3]},  y: {trajectory[1, 3]},  z: {trajectory[2, 3]}")
    
@@ -638,7 +652,6 @@ def main():
         groundTruth = GroundTruth(dataLogger)
         vo = VisualOdometry(dataLogger)
         trajectory = Trajectory(dataLogger, vo)
-        lineNumber = 0
 
         # Analisa os argumentos manualmente
         for i in range(1, len(sys.argv), 2):
@@ -667,35 +680,60 @@ def main():
         if(vo.liveON == False):
             vo.LoadFrames()
             vo.mask = np.zeros_like(vo.framesStored[0])
+        
+        vo.CalibrationFile()
+
+        # Start
+        # 1st frame
+        trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth)
+        trajectory.AddPointsToAxis(trajectory.trajectory, trajectory.typeTrajectory) 
+        trajectory.PrintTrajectory()
+
+        fpsStart = datetime.now()
+        vo.LoadFrames()        
+        vo.DetectingFeaturesFASTMethod()
+        
+        vo.LoadFrames()   
+
+        for i in tqdm(range(len(vo.framesStored))):
+            vo.TrackingFutures()
+            vo.CalculateEssentialMatrix()
             
-        vo.idFrame = 0
-        while (1):
-            trajectory.fileOutput = open(trajectory.trajectoryPath, "r")
-            lines = trajectory.fileOutput.readlines()
-            currentLineNumber = len(lines)           
-
-            if( currentLineNumber != lineNumber):              
-                countLines = 0
-                for line in tqdm(lines):
-                    if(countLines > lineNumber):
-                        elementos = np.fromstring(line, dtype=np.float64, sep=' ') 
-                        trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth)
-                        trajectory.AddPointsToAxis(elementos, trajectory.typeTrajectory)
-                        trajectory.PrintTrajectory()
-                        cv2.waitKey(1)
-                        vo.idFrame += 1
-                    countLines += 1
-                lineNumber = currentLineNumber
-            trajectory.fileOutput.close()
-            break
-																			 					
+            # scale = getAbsoluteScale(groundTruth.GetPose(dataLogger, vo.idFrame-1), groundTruth.GetPose(dataLogger, vo.idFrame))
+            trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
+            trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
+            trajectory.PrintTrajectory()
+          
+            if(vo.idStored ==  vo.numFramesToLoad):
+                break
+            vo.LoadFrames()
+              
+            # vo.DrawFeaturesTracked()
+            cv2.waitKey(1)
+            
     except IndexError:
-        print("Erro: Index error \nFim de programa.")
+    # except MemoryError:
+        print("Erro: Fim de programa.")
 
+    totalDistanceGroundTruth = 0
+    totalDistanceTrajctory = 0
+    for i in range(1, len(trajectory.xValuesTrajectory)):
+        totalDistanceTrajctory += math.sqrt( (trajectory.xValuesTrajectory[i] - trajectory.xValuesTrajectory[i - 1])**2 
+                                   + (trajectory.yValuesTrajectory[i] - trajectory.yValuesTrajectory[i - 1])**2 
+                                   + (trajectory.zValuesTrajectory[i] - trajectory.zValuesTrajectory[i - 1])**2 )
+    for i in range(1, len(trajectory.xValuesGroundTruth)):
+        totalDistanceGroundTruth += math.sqrt( (trajectory.xValuesGroundTruth[i] - trajectory.xValuesGroundTruth[i - 1])**2 
+                                   + (trajectory.yValuesGroundTruth[i] - trajectory.yValuesGroundTruth[i - 1])**2 
+                                   + (trajectory.zValuesGroundTruth[i] - trajectory.zValuesGroundTruth[i - 1])**2 )
+    print(f"Distance travelled: GrandTruth: {totalDistanceGroundTruth}, Trajecotry: {totalDistanceTrajctory}")
+    print(f"Erros mimimo x: {min(trajectory.errorX)}m, y: {min(trajectory.errorY)}m, z: {min(trajectory.errorZ)}m")
+    print(f"Erros máximos x: {max(trajectory.errorX)}m, y: {max(trajectory.errorY)}m, z: {max(trajectory.errorZ)}m")
+    # matlab1(vo.idFrame, vo)
     trajectory.PrintPlots()
+    
+    cv2.waitKey(0)
 
     return 1
 
 if __name__ == '__main__':
     main()
-				

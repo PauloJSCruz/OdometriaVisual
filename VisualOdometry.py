@@ -2,7 +2,6 @@
 import cv2
 import numpy as np
 import matplotlib.pylab as plt
-import pandas as pd
 import os
 import logging
 import sys
@@ -143,13 +142,13 @@ class Camera:
 
 class GroundTruth:    
     def __init__(self, dataLogger):
-        self.posesReaded = pd.read_csv( f'Recursos\\data_odometry_poses\\dataset\\poses\\00.txt' , delimiter= ' ' , header= None ) 
-        # print ( 'Tamanho do dataframe de pose:' , poses.shape) 
-        # print(f'posesReaded: {self.posesReaded.head()}\n')
-        self.poses = (np.array(self.posesReaded.iloc[0]).reshape((3, 4)))
-        
+        with open('Recursos\\data_odometry_poses\\dataset\\poses\\00.txt', 'r') as file:
+            self.posesReaded = np.loadtxt(file, delimiter=' ', dtype=float)
+            return
+    
     def GetPose(self, dataLogger, idFrame):
-        self.poses = (np.array(self.posesReaded.iloc[idFrame]).reshape((3, 4)))
+        self.poses = np.array(self.posesReaded[idFrame])
+        self.poses = self.poses.reshape((3, 4))
         dataLogger.info(f'\n Ground Truth idFrame({idFrame}) : \n {self.poses}')
         return self.poses
 
@@ -444,6 +443,9 @@ class Plots:
         self.errorY = []
         self.errorZ = []
         self.errorIDs = []
+        
+        self.trajectoryPath = "Resultados/OutputTrajectory.txt"
+        open(self.trajectoryPath, 'w')
 
         # self.fig, self.ax = plt.subplots()
         self.fig3d = plt.figure()
@@ -528,7 +530,7 @@ class Plots:
             self.zValuesTrajectory.append(z)
             
             # Opening a file for appending the poinys
-            self.fileOutput = open("Resultados/OutputTrajectory.txt", "a")
+            self.fileOutput = open(self.trajectoryPath, "a")
             self.fileOutput.write(f"{x} {y} {z}\n")
             self.fileOutput.close()
             
@@ -700,7 +702,7 @@ def main():
             
     except IndexError:
     # except MemoryError:
-        print("Erro: Fim de programa.")
+        print("Erro: Index error \nFim de programa.")
 
     totalDistanceGroundTruth = 0
     totalDistanceTrajctory = 0

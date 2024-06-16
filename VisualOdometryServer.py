@@ -8,6 +8,7 @@ import logging
 from datetime import datetime
 from tqdm import tqdm
 import sys
+import math
 # endregion
 
 def ConfigDataLogger():
@@ -40,6 +41,8 @@ class Camera:
         self.webCapture = cv2.VideoCapture(0)
         self.recaptureFrame = False
         self.prevTime = datetime.now()
+        self.totalTime = 0.0
+        self.averageFPS = 0.0
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
@@ -152,7 +155,8 @@ class GroundTruth:
             return
         
     def GetPose(self, dataLogger, idFrame):
-        self.poses = (np.array(self.posesReaded.iloc[idFrame]).reshape((3, 4)))
+        self.poses = np.array(self.posesReaded[idFrame])
+        self.poses = self.poses.reshape((3, 4))
         dataLogger.info(f'\n Ground Truth idFrame({idFrame}) : \n {self.poses}')
         return self.poses
 
@@ -687,6 +691,7 @@ def main():
                         trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth)
                         trajectory.AddPointsToAxis(elementos, trajectory.typeTrajectory)
                         trajectory.PrintTrajectory()
+                        vo.LoadFrames()
                         cv2.waitKey(1)
                         vo.idFrame += 1
                     countLines += 1
@@ -694,9 +699,23 @@ def main():
             trajectory.fileOutput.close()
             break
 																			 					
-    except IndexError:
+    # except IndexError:
+    except MemoryError:
         print("Erro: Index error \nFim de programa.")
-
+    totalDistanceGroundTruth = 0
+    totalDistanceTrajctory = 0
+    for i in range(1, len(trajectory.xValuesTrajectory)):
+        totalDistanceTrajctory += math.sqrt( (trajectory.xValuesTrajectory[i] - trajectory.xValuesTrajectory[i - 1])**2 
+                                   + (trajectory.yValuesTrajectory[i] - trajectory.yValuesTrajectory[i - 1])**2 
+                                   + (trajectory.zValuesTrajectory[i] - trajectory.zValuesTrajectory[i - 1])**2 )
+    for i in range(1, len(trajectory.xValuesGroundTruth)):
+        totalDistanceGroundTruth += math.sqrt( (trajectory.xValuesGroundTruth[i] - trajectory.xValuesGroundTruth[i - 1])**2 
+                                   + (trajectory.yValuesGroundTruth[i] - trajectory.yValuesGroundTruth[i - 1])**2 
+                                   + (trajectory.zValuesGroundTruth[i] - trajectory.zValuesGroundTruth[i - 1])**2 )
+    print(f"Distance travelled: GrandTruth: {totalDistanceGroundTruth}, Trajecotry: {totalDistanceTrajctory}")
+    print(f"Erros mimimo x: {min(trajectory.errorX)}m, y: {min(trajectory.errorY)}m, z: {min(trajectory.errorZ)}m")
+    print(f"Erros máximos x: {max(trajectory.errorX)}m, y: {max(trajectory.errorY)}m, z: {max(trajectory.errorZ)}m")
+    print(f"fps médios: {vo.averageFPS}")
     trajectory.PrintPlots()
 
     return 1

@@ -41,6 +41,8 @@ class Camera:
         self.webCapture = cv2.VideoCapture(0)
         self.recaptureFrame = False
         self.prevTime = datetime.now()
+        self.totalTime = 0.0
+        self.averageFPS = 0.0
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
@@ -79,7 +81,7 @@ class Camera:
                 self.framesLoaded.append(self.framesStored[self.idStored])
                 self.idFrame = len(self.framesLoaded) - 1
                 self.idStored += 1
-                # self.PrintFrame()
+                self.PrintFrame()
                 return 
 
         if (self.liveON == True):
@@ -153,7 +155,8 @@ class GroundTruth:
             return
         
     def GetPose(self, dataLogger, idFrame):
-        self.poses = (np.array(self.posesReaded.iloc[idFrame]).reshape((3, 4)))
+        self.poses = np.array(self.posesReaded[idFrame])
+        self.poses = self.poses.reshape((3, 4))
         dataLogger.info(f'\n Ground Truth idFrame({idFrame}) : \n {self.poses}')
         return self.poses
 
@@ -557,73 +560,11 @@ class Trajectory (Plots):
         self.rot = np.eye(3)
 
     def PrintTrajectory(self):        
-        # Convert the camera positions to pixel coordinates on the image
-        # centerX, centerZ = self.imageTrajectory.shape[1], self.imageTrajectory.shape[0]
-        centerX, centerZ = int(self.imageTrajectory.shape[1] / 2), int(self.imageTrajectory.shape[0] / 2)
-        centerZ = centerZ + 200
-        self.errorIDs.append(self.vo.idFrame)
-        colorGroundTruth = (255, 0, 0)
-        colorTrajectory = (0, 0, 255)
-        colorError = (125, 200, 0)
-
-        textPositionGroundTruth = (10, 40)
-        textPositionTrajectory = (10, 60)
-        textPositionError = (10, 80)
-       
-        textPositionAxixZ = (10, centerZ)
-        textPositionAxixX = (centerX  , self.imageTrajectory.shape[0] - 200)
-
-        cv2.putText(self.imageTrajectory, 'Z', textPositionAxixZ, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-        cv2.putText(self.imageTrajectory, 'X', textPositionAxixX, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-
-        # region GroundTruth
-        # Draw the trajectory on the image as a line
-        cv2.line(self.imageTrajectory, (centerX + int(self.xValuesGroundTruth[self.vo.idFrame]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame]))
-                                    , (centerX + int(self.xValuesGroundTruth[self.vo.idFrame - 1]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame - 1])), colorGroundTruth, 2)
-        
-        # Add text with X, Y, and Z coordinates at the current position
-        textGroundTruth = (f"Ground Truth X: {self.xValuesGroundTruth[self.vo.idFrame]:.2f}, Y: {self.yValuesGroundTruth[self.vo.idFrame]:.2f}, Z: {self.zValuesGroundTruth[self.vo.idFrame]:.2f}")
-        # textPositionGroundTruth = (centerX + int(self.xValuesGroundTruth[self.vo.idFrame - 1]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame - 1]) - 20)
-        cv2.putText(self.imageTrajectory, textGroundTruth, textPositionGroundTruth, cv2.FONT_HERSHEY_SIMPLEX, 0.5, colorGroundTruth, 1)
-        # endregion
-
-        # region trajectory
-        # Draw the current position as a red circle
-        # cv2.circle(self.imageTrajectory, (centerX + int(self.xValuesTrajectory[self.vo.idFrame]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame])), 2, (0, 255, 0), -1)
-        # Draw the trajectory on the image as a line
-        cv2.line(self.imageTrajectory, (centerX + int(self.xValuesTrajectory[self.vo.idFrame]), centerZ - int(self.zValuesTrajectory[self.vo.idFrame]))
-                                    , (centerX + int(self.xValuesTrajectory[self.vo.idFrame - 1]), centerZ - int(self.zValuesTrajectory[self.vo.idFrame - 1])), colorTrajectory, 2)
-        
-        # Add text with X, Y, and Z coordinates at the current position
-        textValuesTrajectory = (f"Trajectory X: {self.xValuesTrajectory[self.vo.idFrame]:.2f}, Y: {self.yValuesTrajectory[self.vo.idFrame]:.2f}, Z: {self.zValuesTrajectory[self.vo.idFrame]:.2f}")
-        # textPositionTrajectory = (centerX + int(self.xValuesTrajectory[self.vo.idFrame - 1]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame - 1]) - 20)
-        cv2.putText(self.imageTrajectory, textValuesTrajectory, textPositionTrajectory, cv2.FONT_HERSHEY_SIMPLEX, 0.5, colorTrajectory, 1)
-        # endregion
-
         # region error        
         # Add text with X, Y, and Z coordinates at the current position
         self.errorX.append (self.xValuesTrajectory[self.vo.idFrame] - self.xValuesGroundTruth[self.vo.idFrame] )
         self.errorY.append (self.yValuesTrajectory[self.vo.idFrame] - self.yValuesGroundTruth[self.vo.idFrame] )
         self.errorZ.append (self.zValuesTrajectory[self.vo.idFrame] - self.zValuesGroundTruth[self.vo.idFrame] )
-
-        # Add error text with X, Y, and Z coordinates at the current position
-        textValuesError = (f"Error X: {self.errorX[self.vo.idFrame]:.2f}, Y: {self.errorY[self.vo.idFrame]:.2f}, Z: {self.errorZ[self.vo.idFrame]:.2f}")
-        cv2.putText(self.imageTrajectory, textValuesError, textPositionError, cv2.FONT_HERSHEY_SIMPLEX, 0.5, colorError, 1)
-        # endregion
-
-        cv2.imshow('Trajectory', self.imageTrajectory)
-
-        # region clean
-        textGroundTruth = f"Ground Truth X: {self.xValuesGroundTruth[self.vo.idFrame]:.2f}, Y: {self.yValuesGroundTruth[self.vo.idFrame]:.2f}, Z: {self.zValuesGroundTruth[self.vo.idFrame]:.2f}"
-        cv2.putText(self.imageTrajectory, textGroundTruth, textPositionGroundTruth, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-        textValuesTrajectory = f"Trajectory X: {self.xValuesTrajectory[self.vo.idFrame]:.2f}, Y: {self.yValuesTrajectory[self.vo.idFrame]:.2f}, Z: {self.zValuesTrajectory[self.vo.idFrame]:.2f}"
-        cv2.putText(self.imageTrajectory, textValuesTrajectory, textPositionTrajectory, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-        # Add error text with X, Y, and Z coordinates at the current position
-        textValuesError = (f"Error X: {self.errorX[self.vo.idFrame]:.2f}, Y: {self.errorY[self.vo.idFrame]:.2f}, Z: {self.errorZ[self.vo.idFrame]:.2f}")
-        cv2.putText(self.imageTrajectory, textValuesError, textPositionError, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-        # endregion
 
     def GetTrajectory(self):
         # The position is given by
@@ -678,7 +619,9 @@ def main():
 
         # Start
         # 1st frame
-        trajectory.AddPointsToAxis(trajectory.trajectory, trajectory.typeTrajectory) 
+        trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
+        trajectory.AddPointsToAxis(trajectory.trajectory, trajectory.typeTrajectory)
+        trajectory.PrintTrajectory() 
 
         fpsStart = datetime.now()
         vo.LoadFrames()        
@@ -689,27 +632,30 @@ def main():
         for i in tqdm(range(len(vo.framesStored) - len(vo.featuresDetected))):
             vo.TrackingFutures()
             vo.CalculateEssentialMatrix()
+            trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
             trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
+            trajectory.PrintTrajectory()
             
             # Load number of iterations            
             vo.LoadFrames()
-
-        totalDistanceGroundTruth = 0
-        totalDistanceTrajctory = 0
-        for i in range(1, len(trajectory.xValuesTrajectory)):
-            totalDistanceTrajctory += math.sqrt( (trajectory.xValuesTrajectory[i] - trajectory.xValuesTrajectory[i - 1])**2 
-                                    + (trajectory.yValuesTrajectory[i] - trajectory.yValuesTrajectory[i - 1])**2 
-                                    + (trajectory.zValuesTrajectory[i] - trajectory.zValuesTrajectory[i - 1])**2 )
-        for i in range(1, len(trajectory.xValuesGroundTruth)):
-            totalDistanceGroundTruth += math.sqrt( (trajectory.xValuesGroundTruth[i] - trajectory.xValuesGroundTruth[i - 1])**2 
-                                    + (trajectory.yValuesGroundTruth[i] - trajectory.yValuesGroundTruth[i - 1])**2 
-                                    + (trajectory.zValuesGroundTruth[i] - trajectory.zValuesGroundTruth[i - 1])**2 )
-        print(f"Distance travelled: GrandTruth: {totalDistanceGroundTruth}, Trajecotry: {totalDistanceTrajctory}")
-        print(f"Erros mimimo x: {min(trajectory.errorX)}m, y: {min(trajectory.errorY)}m, z: {min(trajectory.errorZ)}m")
-        print(f"Erros máximos x: {max(trajectory.errorX)}m, y: {max(trajectory.errorY)}m, z: {max(trajectory.errorZ)}m")
-            
     except IndexError:
         print("Erro: Index error \nFim de programa.")
+
+    totalDistanceGroundTruth = 0
+    totalDistanceTrajctory = 0
+    for i in range(1, len(trajectory.xValuesTrajectory)):
+        totalDistanceTrajctory += math.sqrt( (trajectory.xValuesTrajectory[i] - trajectory.xValuesTrajectory[i - 1])**2 
+                                + (trajectory.yValuesTrajectory[i] - trajectory.yValuesTrajectory[i - 1])**2 
+                                + (trajectory.zValuesTrajectory[i] - trajectory.zValuesTrajectory[i - 1])**2 )
+    for i in range(1, len(trajectory.xValuesGroundTruth)):
+        totalDistanceGroundTruth += math.sqrt( (trajectory.xValuesGroundTruth[i] - trajectory.xValuesGroundTruth[i - 1])**2 
+                                + (trajectory.yValuesGroundTruth[i] - trajectory.yValuesGroundTruth[i - 1])**2 
+                                + (trajectory.zValuesGroundTruth[i] - trajectory.zValuesGroundTruth[i - 1])**2 )
+    print(f"Distance travelled: GrandTruth: {totalDistanceGroundTruth}, Trajecotry: {totalDistanceTrajctory}")
+    print(f"Erros mimimo x: {min(trajectory.errorX)}m, y: {min(trajectory.errorY)}m, z: {min(trajectory.errorZ)}m")
+    print(f"Erros máximos x: {max(trajectory.errorX)}m, y: {max(trajectory.errorY)}m, z: {max(trajectory.errorZ)}m")
+    print(f"fps médios: {vo.averageFPS}")
+            
     
     return 1
 

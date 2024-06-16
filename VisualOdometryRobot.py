@@ -127,16 +127,21 @@ class Camera:
         self.framesLoaded.append( cv2.VideoCapture(0) )
 
     def PrintFrame(self):
-        # Calcula o tempo decorrido entre o frame atual e o anterior
         currentTime = datetime.now()
         time = (currentTime - self.prevTime).total_seconds()
+        self.totalTime += time
+        # Instantaneous FPS
         if time > 0:
-            fps = round(1 / time)
+            fps = round(1 / time)   
+        # Average FPS
+        if self.totalTime > 0:
+            self.averageFPS = round(len(self.framesStored) / self.totalTime)
         self.prevTime = currentTime
-        currentFrame = self.framesLoaded[self.idFrame].copy()
-        cv2.putText (currentFrame, f'fps: {fps}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA )
-        cv2.putText (currentFrame, f'Frame: {self.idFrame}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA )
-        cv2.imshow('Frame', currentFrame)
+        
+        # currentFrame = self.framesLoaded[self.idFrame].copy()
+        # cv2.putText(currentFrame, f'FPS: {fps}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        # cv2.putText(currentFrame, f'Frame: {self.idFrame}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        # cv2.imshow('Frame', currentFrame)
 
     def PrintCustomFrame(self, text, frame):
         cv2.imshow(text, frame)

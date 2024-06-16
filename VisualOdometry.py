@@ -40,6 +40,8 @@ class Camera:
         self.webCapture = cv2.VideoCapture(0)
         self.recaptureFrame = False
         self.prevTime = datetime.now()
+        self.totalTime = 0.0
+        self.averageFPS = 0.0
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
@@ -126,15 +128,20 @@ class Camera:
         self.framesLoaded.append( cv2.VideoCapture(0) )
 
     def PrintFrame(self):
-        # Calcula o tempo decorrido entre o frame atual e o anterior
         currentTime = datetime.now()
         time = (currentTime - self.prevTime).total_seconds()
+        self.totalTime += time
+        # Instantaneous FPS
         if time > 0:
-            fps = round(1 / time)
+            fps = round(1 / time)   
+        # Average FPS
+        if self.totalTime > 0:
+            self.averageFPS = round(len(self.framesStored) / self.totalTime)
         self.prevTime = currentTime
+        
         currentFrame = self.framesLoaded[self.idFrame].copy()
-        cv2.putText (currentFrame, f'fps: {fps}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA )
-        cv2.putText (currentFrame, f'Frame: {self.idFrame}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA )
+        cv2.putText(currentFrame, f'FPS: {fps}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(currentFrame, f'Frame: {self.idFrame}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
         cv2.imshow('Frame', currentFrame)
 
     def PrintCustomFrame(self, text, frame):
@@ -678,7 +685,6 @@ def main():
         trajectory.AddPointsToAxis(trajectory.trajectory, trajectory.typeTrajectory) 
         trajectory.PrintTrajectory()
 
-        fpsStart = datetime.now()
         vo.LoadFrames()        
         vo.DetectingFeaturesFASTMethod()
         
@@ -717,6 +723,7 @@ def main():
     print(f"Distance travelled: GrandTruth: {totalDistanceGroundTruth}, Trajecotry: {totalDistanceTrajctory}")
     print(f"Erros mimimo x: {min(trajectory.errorX)}m, y: {min(trajectory.errorY)}m, z: {min(trajectory.errorZ)}m")
     print(f"Erros máximos x: {max(trajectory.errorX)}m, y: {max(trajectory.errorY)}m, z: {max(trajectory.errorZ)}m")
+    print(f"fps médios: {vo.averageFPS}")
     # matlab1(vo.idFrame, vo)
     trajectory.PrintPlots()
     

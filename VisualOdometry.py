@@ -42,7 +42,6 @@ class Camera:
         self.prevTime = datetime.now()
         self.totalFPS = 0.0
         self.instaFPS = 0.0
-        self.averageFPS = 0.0
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
@@ -132,11 +131,11 @@ class Camera:
         currentTime = datetime.now()
         time = (currentTime - self.prevTime).total_seconds()
         # Instantaneous FPS
+        # Instantaneous FPS
         if time > 0:
-            self.instaFPS = round(1 / time) 
-            self.totalFPS += self.instaFPS
-        # Average FPS
-        self.prevTime = currentTime
+            self.instaFPS = round(1 / time, 2) 
+            self.totalFPS += self.instaFPS  
+            self.prevTime = currentTime
         currentFrame = self.framesLoaded[self.idFrame].copy()
         cv2.putText(currentFrame, f'FPS: {self.instaFPS}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
         cv2.putText(currentFrame, f'Frame: {self.idFrame}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
@@ -701,7 +700,6 @@ def main():
                 break
             vo.LoadFrames()
               
-            # vo.DrawFeaturesTracked()
             cv2.waitKey(1)
             
     except IndexError:
@@ -723,9 +721,8 @@ def main():
     print(f"Erros mimimo x: {min(trajectory.errorX)}m, y: {min(trajectory.errorY)}m, z: {min(trajectory.errorZ)}m")
     print(f"Erros máximos x: {max(trajectory.errorX)}m, y: {max(trajectory.errorY)}m, z: {max(trajectory.errorZ)}m")
     
-    vo.averageFPS = round(vo.totalFPS / len(vo.framesStored))
-    print(f"fps médios: {vo.averageFPS}")
-    # matlab1(vo.idFrame, vo)
+    averageFPS = round(vo.totalFPS / len(vo.framesStored), 2)
+    print(f"fps médios: {averageFPS}")
     trajectory.PrintPlots()
     
     cv2.waitKey(0)

@@ -30,7 +30,7 @@ class Camera:
         self.numFramesToLoad = 1000      
         self.idCamera = 0
         # end
-        self.dataLogger = dataLogger
+        # self.dataLogger = dataLogger
         self.idFrame = 0
         self.idStored = 0
         self.framesStored = []
@@ -41,8 +41,9 @@ class Camera:
         self.webCapture = cv2.VideoCapture(0)
         self.recaptureFrame = False
         self.prevTime = datetime.now()
-        self.totalTime = 0.0
+        self.totalFPS = 0.0
         self.averageFPS = 0.0
+        self.instaFPS = 0.0
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
@@ -131,17 +132,15 @@ class Camera:
     def PrintFrame(self):
         currentTime = datetime.now()
         time = (currentTime - self.prevTime).total_seconds()
-        self.totalTime += time
+        
         # Instantaneous FPS
         if time > 0:
-            fps = round(1 / time)   
-        # Average FPS
-        if self.totalTime > 0:
-            self.averageFPS = round(len(self.framesStored) / self.totalTime)
-        self.prevTime = currentTime
+            self.instaFPS = round(1 / time, 2) 
+            self.totalFPS += self.instaFPS  
+            self.prevTime = currentTime
         
         # currentFrame = self.framesLoaded[self.idFrame].copy()
-        # cv2.putText(currentFrame, f'FPS: {fps}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        # cv2.putText(currentFrame, f'FPS: {self.instaFPS}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
         # cv2.putText(currentFrame, f'Frame: {self.idFrame}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
         # cv2.imshow('Frame', currentFrame)
 
@@ -157,7 +156,7 @@ class GroundTruth:
     def GetPose(self, dataLogger, idFrame):
         self.poses = np.array(self.posesReaded[idFrame])
         self.poses = self.poses.reshape((3, 4))
-        dataLogger.info(f'\n Ground Truth idFrame({idFrame}) : \n {self.poses}')
+        # dataLogger.info(f'\n Ground Truth idFrame({idFrame}) : \n {self.poses}')
         return self.poses
 
 class VisualOdometry (Camera):
@@ -262,7 +261,7 @@ class VisualOdometry (Camera):
         # self.DrawFeaturesMatched()
         # self.FramesOverlapping(self.DrawFeaturesTracked(newFeatures, self.featuresTracked[self.idFrame - 1]))  
         
-        self.dataLogger.info(f'\n featuresTracked ({self.idFrame}) \n {self.featuresTracked[self.idFrame]}')
+        # self.dataLogger.info(f'\n featuresTracked ({self.idFrame}) \n {self.featuresTracked[self.idFrame]}')
         return True
 
     def DrawFeaturesMatched(self, numPoints = 5):
@@ -346,7 +345,7 @@ class VisualOdometry (Camera):
         if ((self.essentialMatrix is not None) and (len(self.essentialMatrix) == 3)):
             self.DecomposeEssentialMatrix()  # Decomposes the essential matrix to extract rotation and translation
 
-            F = self.FundamentalMatrix(self.essentialMatrix, self.intrinsicParameters)
+            # F = self.FundamentalMatrix(self.essentialMatrix, self.intrinsicParameters)
 
             # # Extrai os pontos de features para passar para a função de desenho
             # # Você pode precisar ajustar como os pontos são extraídos de suas estruturas de dados
@@ -439,7 +438,7 @@ class VisualOdometry (Camera):
 
 class Plots:
     def __init__(self, dataLogger):
-        self.dataLogger = dataLogger
+        # self.dataLogger = dataLogger
         self.numPlots = 0
         self.xValuesGroundTruth = []
         self.yValuesGroundTruth = []
@@ -547,7 +546,7 @@ class Trajectory (Plots):
     def __init__(self, dataLogger, voInstance):
         super().__init__(dataLogger)
         self.vo = voInstance
-        self.dataLogger = dataLogger
+        # self.dataLogger = dataLogger
         self.allPointsTrajectory = []
         self.trajectory = np.identity(4)
         
@@ -623,7 +622,6 @@ def main():
         trajectory.AddPointsToAxis(trajectory.trajectory, trajectory.typeTrajectory)
         trajectory.PrintTrajectory() 
 
-        fpsStart = datetime.now()
         vo.LoadFrames()        
         vo.DetectingFeaturesFASTMethod()
         
@@ -633,11 +631,13 @@ def main():
             vo.TrackingFutures()
             vo.CalculateEssentialMatrix()
             trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
-            trajectory.AddPointsToAxis(trajectory.GetTrajectory(), trajectory.typeTrajectory)
-            trajectory.PrintTrajectory()
-            
-            # Load number of iterations            
+            traj = trajectory.GetTrajectory()
+            trajectory.AddPointsToAxis(traj, trajectory.typeTrajectory)
+            trajectory.PrintTrajectory() 
+            if(vo.idStored ==  vo.numFramesToLoad):
+                break 
             vo.LoadFrames()
+
     except IndexError:
         print("Erro: Index error \nFim de programa.")
 
@@ -651,12 +651,14 @@ def main():
         totalDistanceGroundTruth += math.sqrt( (trajectory.xValuesGroundTruth[i] - trajectory.xValuesGroundTruth[i - 1])**2 
                                                 + (trajectory.yValuesGroundTruth[i] - trajectory.yValuesGroundTruth[i - 1])**2 
                                                 + (trajectory.zValuesGroundTruth[i] - trajectory.zValuesGroundTruth[i - 1])**2 )
+        
     print(f"Distance travelled: GrandTruth: {totalDistanceGroundTruth}, Trajecotry: {totalDistanceTrajctory}")
     print(f"Erros mimimo x: {min(trajectory.errorX)}m, y: {min(trajectory.errorY)}m, z: {min(trajectory.errorZ)}m")
     print(f"Erros máximos x: {max(trajectory.errorX)}m, y: {max(trajectory.errorY)}m, z: {max(trajectory.errorZ)}m")
+
+    vo.averageFPS = round(vo.totalFPS / len(vo.framesStored))
     print(f"fps médios: {vo.averageFPS}")
-            
-    
+
     return 1
 
 if __name__ == '__main__':

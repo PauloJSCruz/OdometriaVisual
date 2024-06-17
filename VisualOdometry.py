@@ -40,7 +40,8 @@ class Camera:
         self.webCapture = cv2.VideoCapture(0)
         self.recaptureFrame = False
         self.prevTime = datetime.now()
-        self.totalTime = 0.0
+        self.totalFPS = 0.0
+        self.instaFPS = 0.0
         self.averageFPS = 0.0
 
     def CalibrationFile(self):
@@ -130,17 +131,14 @@ class Camera:
     def PrintFrame(self):
         currentTime = datetime.now()
         time = (currentTime - self.prevTime).total_seconds()
-        self.totalTime += time
         # Instantaneous FPS
         if time > 0:
-            fps = round(1 / time)   
+            self.instaFPS = round(1 / time) 
+            self.totalFPS += self.instaFPS
         # Average FPS
-        if self.totalTime > 0:
-            self.averageFPS = round(len(self.framesStored) / self.totalTime)
         self.prevTime = currentTime
-        
         currentFrame = self.framesLoaded[self.idFrame].copy()
-        cv2.putText(currentFrame, f'FPS: {fps}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(currentFrame, f'FPS: {self.instaFPS}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
         cv2.putText(currentFrame, f'Frame: {self.idFrame}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
         cv2.imshow('Frame', currentFrame)
 
@@ -720,9 +718,12 @@ def main():
         totalDistanceGroundTruth += math.sqrt( (trajectory.xValuesGroundTruth[i] - trajectory.xValuesGroundTruth[i - 1])**2 
                                    + (trajectory.yValuesGroundTruth[i] - trajectory.yValuesGroundTruth[i - 1])**2 
                                    + (trajectory.zValuesGroundTruth[i] - trajectory.zValuesGroundTruth[i - 1])**2 )
+        
     print(f"Distance travelled: GrandTruth: {totalDistanceGroundTruth}, Trajecotry: {totalDistanceTrajctory}")
     print(f"Erros mimimo x: {min(trajectory.errorX)}m, y: {min(trajectory.errorY)}m, z: {min(trajectory.errorZ)}m")
     print(f"Erros máximos x: {max(trajectory.errorX)}m, y: {max(trajectory.errorY)}m, z: {max(trajectory.errorZ)}m")
+    
+    vo.averageFPS = round(vo.totalFPS / len(vo.framesStored))
     print(f"fps médios: {vo.averageFPS}")
     # matlab1(vo.idFrame, vo)
     trajectory.PrintPlots()

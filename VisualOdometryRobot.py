@@ -656,7 +656,7 @@ def main():
     print(f"Erros mimimo x: {min(trajectory.errorX)}m, y: {min(trajectory.errorY)}m, z: {min(trajectory.errorZ)}m")
     print(f"Erros máximos x: {max(trajectory.errorX)}m, y: {max(trajectory.errorY)}m, z: {max(trajectory.errorZ)}m")
 
-    vo.averageFPS = round(vo.totalFPS / len(vo.framesStored))
+    vo.averageFPS = round(vo.totalFPS / len(vo.framesStored), 2)
     print(f"fps médios: {vo.averageFPS}")
 
     return 1

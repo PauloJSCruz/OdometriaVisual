@@ -3,20 +3,19 @@ import os
 import time
 from picamera2 import Picamera2
 
-def capture_images(save_path, num_images=20, delay=5):
+def capture_images(save_path, num_images=20):
     """
-    Captura uma série de imagens da câmera conectada ao computador após uma pré-visualização de alguns segundos e salva em um diretório especificado.
+    Captura uma serie de imagens da camera conectada ao computador ao pressionar a tecla "Enter" e salva em um diretorio especificado.
     
-    Parâmetros:
-        save_path (str): O caminho onde as imagens serão salvas.
-        num_images (int): Número de imagens a serem capturadas.
-        preview_time (int): Duração da pré-visualização antes de começar a capturar (em segundos).
+    Parametros:
+        save_path (str): O caminho onde as imagens serao salvas.
+        num_images (int): Numero de imagens a serem capturadas.
     """
-    # Criar o diretório se não existir
+    # Criar o diretorio se nao existir
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     
-    # Inicializar a câmera
+    # Inicializar a camera
     picam2 = Picamera2()
 
     # Configurar a camera
@@ -24,54 +23,50 @@ def capture_images(save_path, num_images=20, delay=5):
     picam2.configure(camera_config)
         
     picam2.set_controls({
-                "Brightness": 0.0,  # Brilho: -1 (escuro) a 1 (claro). Valor padr�o: 0.5.
-                "Contrast": 1.5,  # Contraste: 0 (baixo contraste) a 32.0 (alto contraste). Valor padr�o: 1.0.
-                "ExposureTime": 20000,  # Tempo de exposi��o: em microsegundos. Valor padr�o: 20000.
-                "AnalogueGain": 1.8,  # Ganho anal�gico: normalmente de 1.0 a 16.0. Valor padr�o: 2.0.
-                "AwbMode": 0,  # Modo de balan�o de branco autom�tico: 0 (off), 1 (auto), 2 (tungsten), 3 (fluorescent), 4 (indoor), 5 (daylight), 6 (cloudy)
-                "Saturation": 0.1,  # Satura��o: 0 (dessaturado) a 1 (muito saturado). Valor padr�o: 1.0.
-                "Sharpness": 2,  # Nitidez: 0 (baixa nitidez) a 1 (alta nitidez). Valor padr�o: 1.0.
-                "NoiseReductionMode": 2,  # Modo de redu��o de ru�do: 0 (off), 1 (fast), 2 (high_quality)
+                "Brightness": 0.0,  # Brilho: -1 (escuro) a 1 (claro). Valor padrao: 0.5.
+                "Contrast": 1.5,  # Contraste: 0 (baixo contraste) a 32.0 (alto contraste). Valor padrao: 1.0.
+                "ExposureTime": 20000,  # Tempo de exposicao: em microsegundos. Valor padrao: 20000.
+                "AnalogueGain": 1.8,  # Ganha analogico: normalmente de 1.0 a 16.0. Valor padrao: 2.0.
+                "AwbMode": 0,  # Modo de balanco de branco automatico: 0 (off), 1 (auto), 2 (tungstenio), 3 (fluorescente), 4 (interno), 5 (luz do dia), 6 (nublado)
+                "Saturation": 0.1,  # Saturacao: 0 (dessaturado) a 1 (muito saturado). Valor padrao: 1.0.
+                "Sharpness": 2,  # Nitidez: 0 (baixa nitidez) a 1 (alta nitidez). Valor padrao: 1.0.
+                "NoiseReductionMode": 2,  # Modo de reducao de ruido: 0 (off), 1 (rapido), 2 (alta qualidade)
             })
 
     picam2.start() 
     
     # Contador para as imagens
     count = 0
-    print("Pré-visualização da captura de imagens...")
-    preview_time = time.time()
-    config = 0.0
-    while True:
+    print("Pressione 'Enter' para capturar uma imagem. Pressione 'q' para sair.")
+    
+    while count < num_images:
         image = picam2.capture_array()
-        # Mostrar a imagem capturada
-        cv2.imshow('Camera Feed', image)  
-        cv2.waitKey(1)
-        # Verificar se o tempo de pré-visualização passou antes de começar a salvar as imagens~
-        realTime = time.time()
-        if  realTime > preview_time + delay:
+        
+        # Mostrar a imagem capturada de forma eficiente
+        cv2.imshow('Camera Feed', cv2.resize(image, (640, 480)))  
+        
+        key = cv2.waitKey(1) & 0xFF
+        if key == 13:  # Codigo da tecla "Enter"
+            img_name = f"image_{count:04d}.png"
+            img_path = os.path.join(save_path, img_name)
+            cv2.imwrite(img_path, image)
+            print(f"Imagem {count + 1} salva em: {img_path}")
+            count += 1
             
-            preview_time = realTime
-            if count < num_images:
-                img_name = f"image_{count:04d}.png"
-                img_path = os.path.join(save_path, img_name)
-                cv2.imwrite(img_path, image)
-                print(f"Imagem {count + 1} salva em: {img_path}")
-                count += 1
-            else:
-                break
-
-            delay = 5
-
-        # # Pressione 'q' para sair
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+            # Libera a mem�ria da imagem ap�s salv�-la
+            del image
+        elif key == ord('q'):  # Pressione 'q' para sair
             break
+        
+        # Adicionar uma pequena pausa para reduzir a carga de processamento
+        time.sleep(0.1)
     
     # Limpeza
     cv2.destroyAllWindows()
-    print("Captura de imagens concluída.")
+    picam2.stop()
+    print("Captura de imagens concluida.")
 
 if __name__ == "__main__":
     save_path = 'FotosPICamera'
-    num_images = 50
-    delay = 50  # tempo de visualização em segundos antes de começar a capturar
-    capture_images(save_path, num_images, delay)
+    num_images = 200
+    capture_images(save_path, num_images)

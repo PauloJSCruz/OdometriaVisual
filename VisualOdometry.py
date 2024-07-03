@@ -510,10 +510,10 @@ class Plots:
 
     def PrintPlots(self):
 
-        self.ax2d.plot(self.xValuesGroundTruth, self.zValuesGroundTruth, color = 'green', label='GroundTruth')
+        self.ax2d.plot(self.xValuesGroundTruth, self.zValuesGroundTruth, color = 'blue', label='GroundTruth')
         # self.ax2d.scatter(self.xValuesGroundTruth, self.zValuesGroundTruth, color='red', marker='x')
 
-        self.ax2d.plot(self.xValuesTrajectory, self.zValuesTrajectory, color = 'blue', label='Trajectory')
+        self.ax2d.plot(self.xValuesTrajectory, self.zValuesTrajectory, color = 'red', label='Trajectory')
         # self.ax2d.scatter(self.xValuesTrajectory, self.zValuesTrajectory, color='red', marker='o')
 
         self.errorAxes.plot(self.errorIDs, self.errorX, color = 'blue', label='errorX')
@@ -531,10 +531,10 @@ class Plots:
         # self.errorMean.scatter(self.errorIDs, self.MeanAbsoluteError, color = 'red', marker='.')
         # self.errorMean.scatter(self.errorIDs, self.RootMeanSquaredError, color = 'red', marker='.')
 
-        self.ax3d.plot(self.xValuesGroundTruth, self.yValuesGroundTruth, self.zValuesGroundTruth, color = 'green', label='GroundTruth')
+        self.ax3d.plot(self.xValuesGroundTruth, self.yValuesGroundTruth, self.zValuesGroundTruth, color = 'blue', label='GroundTruth')
         # self.ax3d.scatter(self.xValuesGroundTruth, self.yValuesGroundTruth, self.zValuesGroundTruth, color='red', marker='x')
 
-        self.ax3d.plot(self.xValuesTrajectory, self.yValuesTrajectory, self.zValuesTrajectory, color = 'blue', label='Trajectory')
+        self.ax3d.plot(self.xValuesTrajectory, self.yValuesTrajectory, self.zValuesTrajectory, color = 'red', label='Trajectory')
         # self.ax3d.scatter(self.xValuesTrajectory, self.yValuesTrajectory, self.zValuesTrajectory, color='blue', marker='o')
 
         self.numPlots += 1

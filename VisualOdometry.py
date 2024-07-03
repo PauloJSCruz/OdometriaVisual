@@ -146,7 +146,7 @@ class Camera:
 
 class GroundTruth:    
     def __init__(self, dataLogger):
-        with open('Recursos\\data_odometry_poses\\dataset\\poses\\00.txt', 'r') as file:
+        with open('Recursos/data_odometry_poses/dataset/poses/00.txt', 'r') as file:
             self.posesReaded = np.loadtxt(file, delimiter=' ', dtype=float)
             return
     
@@ -175,19 +175,12 @@ class VisualOdometry (Camera):
         # Cria o objeto FAST com parâmetros específicos
         self.fastDetector = cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True, type=2 )
 
-    def FrameProcess(self):
-        # frame = cv2.resize(frame, (FrameWidth, FrameHeight))
-        # Convert Frame RGB on Gray scale
-        # frameGray = cv2.cvtColor(self.framesLoaded[self.idFrame], cv2.COLOR_BGR2GRAY)
-        # self.PrintCustomFrame("FrameGray", frameGray)      
-        # self.framesLoaded[self.idFrame] = frameGray.copy()
-        # self.PrintCustomFrame("Frame copied", self.framesLoaded[self.idFrame])
-        
+    def FrameProcess(self):      
         frameFiltered = self.framesLoaded[self.idFrame].copy()
         # frameFiltered = self.BandPassFilter(frameGray)
-        # tamanho_kernel = (7, 7)
-        # desvio_padrao = 12  # Valor maior para mais desfoque
-        # frameFiltered = cv2.GaussianBlur(frameGray, tamanho_kernel, desvio_padrao)
+        # tamanho_kernel = (9, 9)
+        # desvio_padrao = 3  # Valor maior para mais desfoque
+        # frameFiltered = cv2.GaussianBlur(frameFiltered, tamanho_kernel, desvio_padrao)
 
         # self.PrintCustomFrame("Frame filtred", frameFiltered)
         return frameFiltered
@@ -209,7 +202,6 @@ class VisualOdometry (Camera):
             while(len(keypointsgood) < 25):
                 keypointsgood = [ kp for kp in keypoints if kp.response > response ]
                 response -= 5
-                print(response)
             keypoints = keypointsgood
 
             # Converts the keypoints to a numpy array
@@ -556,10 +548,10 @@ class Plots:
                 self.ax3d.legend()
                 self.errorMean .legend()
                 self.errorAxes.legend()
-            self.fig2d.savefig(f"Resultados/Trajectory2D{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s'.pdf")
-            self.fig3d.savefig(f"Resultados/Trajectory3D{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s'.pdf")
-            self.figErroAxes.savefig(f"Resultados/PlotErrorAxes{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s'.pdf")
-            self.figError.savefig(f"Resultados/PlotError{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s'.pdf")
+            self.fig2d.savefig(f"Resultados/Trajectory2D{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s.pdf")
+            self.fig3d.savefig(f"Resultados/Trajectory3D{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s.pdf")
+            self.figErroAxes.savefig(f"Resultados/PlotErrorAxes{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s.pdf")
+            self.figError.savefig(f"Resultados/PlotError{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s.pdf")
                         
             plt.show()
 
@@ -717,7 +709,7 @@ class Trajectory (Plots):
         return self.trajectory
 
 def main():
-    idCamera = 0
+    idCamera = 2
     numFramesToLoad = 4530
     liveON = False
     try:
@@ -778,7 +770,6 @@ def main():
             vo.TrackingFutures()
             vo.CalculateEssentialMatrix()
             
-            # scale = getAbsoluteScale(groundTruth.GetPose(dataLogger, vo.idFrame-1), groundTruth.GetPose(dataLogger, vo.idFrame))
             trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
             trajectory.AddPointsToAxis(trajectory.GetTrajectory()[vo.idFrame], trajectory.typeTrajectory)
             trajectory.PrintTrajectory()

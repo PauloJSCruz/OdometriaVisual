@@ -127,6 +127,26 @@ class Camera:
         # Live
         self.framesLoaded.append( cv2.VideoCapture(0) )
 
+    # Função para redimensionar a imagem mantendo a proporção
+    def ResizeImage(self, image, screenWidth, screenHeight):
+        # Obter as dimensões da imagem
+        imgHeight, imgWidth = image.shape[:2]
+
+        # Calcular a razão de redimensionamento mantendo a proporção
+        widthRatio = screenWidth / imgWidth
+        heightRatio = screenHeight / imgHeight
+        resizeRatio = min(widthRatio, heightRatio)
+
+        # Calcular as novas dimensões
+        new_width = int(imgWidth * resizeRatio)
+        new_height = int(imgHeight * resizeRatio)
+
+        # Redimensionar a imagem
+        resizedImage = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
+        
+        return resizedImage
+
+
     def PrintFrame(self, frame):
         currentTime = datetime.now()
         time = (currentTime - self.prevTime).total_seconds()
@@ -252,7 +272,7 @@ class VisualOdometry (Camera):
         # Save only new corners that have matched
         self.featuresTracked.append(opticalFlow[status[:, 0] == 1]) 
 
-        # self.DrawFeaturesMatched()
+        self.DrawFeaturesMatched()
         # self.FramesOverlapping(self.DrawFeaturesTracked(newFeatures, self.featuresTracked[self.idFrame - 1]))  
         
         self.dataLogger.info(f'\n featuresTracked ({self.idFrame}) \n {self.featuresTracked[self.idFrame]}')
@@ -303,26 +323,7 @@ class VisualOdometry (Camera):
             cv2.circle(compositeImage, pt2, 5, (0, 0, 255), -1)
 
         # Mostra a imagem com correspondências
-        self.PrintCustomFrame("Features matched", self.resizeImage(compositeImage, 1920, 1080))
-
-    # Função para redimensionar a imagem mantendo a proporção
-    def resizeImage(self, image, screenWidth, screenHeight):
-        # Obter as dimensões da imagem
-        imgHeight, imgWidth = image.shape[:2]
-
-        # Calcular a razão de redimensionamento mantendo a proporção
-        widthRatio = screenWidth / imgWidth
-        heightRatio = screenHeight / imgHeight
-        resizeRatio = min(widthRatio, heightRatio)
-
-        # Calcular as novas dimensões
-        new_width = int(imgWidth * resizeRatio)
-        new_height = int(imgHeight * resizeRatio)
-
-        # Redimensionar a imagem
-        resizedImage = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
-        
-        return resizedImage
+        self.PrintCustomFrame("Features matched", self.ResizeImage(compositeImage, 1920, 1080))
 
     def DrawFeaturesTracked(self, newFeatures, oldFeatures):
         currentFrame = self.framesLoaded[self.idFrame].copy()
@@ -596,7 +597,7 @@ class Trajectory (Plots):
         self.typeTrajectory = 'Trajectory'
         self.typeGroundTruth = 'GroundTruth'
         # Criar um image em branco
-        self.imageTrajectory = np.ones((1000, 1920, 3), dtype=np.uint8) * 255  # image branco        
+        self.imageTrajectory = np.ones((1080, 1920, 3), dtype=np.uint8) * 255
         self.trajectoryPosition = np.zeros((3, 1), dtype=np.float32)
         self.trajectoryRotation = np.eye(3)
         self.trajectory = []
@@ -607,23 +608,21 @@ class Trajectory (Plots):
         self.overallRelErrors.append(0.0)
 
 
-
     def PrintTrajectory(self):        
         # Convert the camera positions to pixel coordinates on the image
         # centerX, centerZ = self.imageTrajectory.shape[1], self.imageTrajectory.shape[0]
         centerX, centerZ = int(self.imageTrajectory.shape[1] / 2), int(self.imageTrajectory.shape[0] / 2)
-        centerZ = centerZ + 200
+        centerZ = centerZ - 0
         self.errorIDs.append(self.vo.idFrame)
         colorGroundTruth = (255, 0, 0)
         colorTrajectory = (0, 0, 255)
-        colorError = (125, 200, 0)
-
+        colorError = (10, 10, 10)
         textPositionGroundTruth = (10, 40)
         textPositionTrajectory = (10, 60)
         textPositionError = (10, 80)
        
         textPositionAxixZ = (10, centerZ)
-        textPositionAxixX = (centerX  , self.imageTrajectory.shape[0] - 200)
+        textPositionAxixX = (centerX + 20  , self.imageTrajectory.shape[0] - 100)
 
         cv2.putText(self.imageTrajectory, 'Z', textPositionAxixZ, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
         cv2.putText(self.imageTrajectory, 'X', textPositionAxixX, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
@@ -722,8 +721,6 @@ class Trajectory (Plots):
         self.relativePoseError.append(rpe)
         
         return self.trajectory
-
-
 
 def main():
     idCamera = 2

@@ -1,12 +1,13 @@
 # region Imports
+# from asyncio.windows_events import NULL
 import cv2
 import numpy as np
 import matplotlib.pylab as plt
 import os
 import logging
-import sys
 from datetime import datetime
 from tqdm import tqdm
+import sys
 import math
 # endregion
 
@@ -27,7 +28,7 @@ class Camera:
         # Editable parameters
         self.liveON = False
         self.numFramesToLoad = 1000      
-        self.idCamera = 0
+        self.idCamera = 2
         # end
         self.dataLogger = dataLogger
         self.idFrame = 0
@@ -40,8 +41,8 @@ class Camera:
         self.webCapture = cv2.VideoCapture(0)
         self.recaptureFrame = False
         self.prevTime = datetime.now()
-        self.totalFPS = 0.0
-        self.instaFPS = 0.0
+        self.totalTime = 0.0
+        self.averageFPS = 0.0
 
     def CalibrationFile(self):
         # Define o caminho para o arquivo de calibração
@@ -63,24 +64,24 @@ class Camera:
         except FileNotFoundError:
             print(f"Arquivo não encontrado: {file}")
             return
-        
-        # self.dataLogger.info(f'\nParâmetros Intrínsecos:\n{self.intrinsicParameters}')
+
+        # Assumindo que # self.dataLogger.info é um método válido para registrar informação
+        # self.dataLogger.info(f'\nParâmetros Intrínsecos:\n{self.intrinsicParameters}')        
+        # dataLogger.info(f'\n distortioncoefficient \n {distortioncoefficient}')
 
     def LoadFrames(self):
         self.filePath = f'Recursos/00/image_{self.idCamera}'
         if (self.liveON == False):
-            if ( len(self.framesStored) == 0):
+            if ( len(self.framesStored) == 0 or len(self.framesStored) != self.numFramesToLoad):
                 framePath = [os.path.join(self.filePath, file) for file in sorted(os.listdir(self.filePath))][:self.numFramesToLoad]
                 self.framesStored = [cv2.imread(path) for path in framePath][:self.numFramesToLoad]
                 self.frameHeight, self.frameWidth = self.framesStored[0].shape[:2]
                 return print( '\n Frames Loaded \n')
-            else:
-                self.PrintFrame(self.framesStored[self.idStored])
-                if self.idCamera == 2 or self.idCamera == 3:
-                    self.framesStored[self.idStored] = cv2.cvtColor(self.framesStored[self.idStored], cv2.COLOR_BGR2GRAY)                
+            else:                
                 self.framesLoaded.append(self.framesStored[self.idStored])
                 self.idFrame = len(self.framesLoaded) - 1
-                self.idStored += 1                
+                self.idStored += 1
+                self.PrintFrame()
                 return 
 
         if (self.liveON == True):
@@ -127,7 +128,25 @@ class Camera:
         # Live
         self.framesLoaded.append( cv2.VideoCapture(0) )
 
-    # Função para redimensionar a imagem mantendo a proporção
+    def PrintFrame(self):
+        currentTime = datetime.now()
+        time = (currentTime - self.prevTime).total_seconds()
+        self.totalTime += time
+        # Instantaneous FPS
+        if time > 0:
+            fps = round(1 / time)   
+        # Average FPS
+        if self.totalTime > 0:
+            self.averageFPS = round(len(self.framesStored) / self.totalTime)
+        self.prevTime = currentTime
+        
+        currentFrame = self.framesLoaded[self.idFrame].copy()
+        # cv2.putText(currentFrame, f'FPS: {fps}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText(currentFrame, f'Frame: {self.idFrame}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+
+        frameRecized = self.ResizeImage(currentFrame, 960, 1080)
+        cv2.imshow('Frame', frameRecized)
+
     def ResizeImage(self, image, screenWidth, screenHeight):
         # Obter as dimensões da imagem
         imgHeight, imgWidth = image.shape[:2]
@@ -146,23 +165,6 @@ class Camera:
         
         return resizedImage
 
-
-    def PrintFrame(self, frame):
-        currentTime = datetime.now()
-        time = (currentTime - self.prevTime).total_seconds()
-        # Instantaneous FPS
-        # Instantaneous FPS
-        if time > 0:
-            self.instaFPS = round(1 / time, 2) 
-            self.totalFPS += self.instaFPS  
-            self.prevTime = currentTime
-        currentFrame = frame.copy()
-        cv2.putText(currentFrame, f'FPS: {self.instaFPS}', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
-        cv2.putText(currentFrame, f'Frame: {self.idFrame}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
-
-        frameRecized = self.ResizeImage(currentFrame, 960, 1080)
-        cv2.imshow('Frame', frameRecized)
-
     def PrintCustomFrame(self, text, frame):
         cv2.imshow(text, frame)
 
@@ -171,7 +173,7 @@ class GroundTruth:
         with open('Recursos/data_odometry_poses/dataset/poses/00.txt', 'r') as file:
             self.posesReaded = np.loadtxt(file, delimiter=' ', dtype=float)
             return
-    
+        
     def GetPose(self, dataLogger, idFrame):
         self.poses = np.array(self.posesReaded[idFrame])
         self.poses = self.poses.reshape((3, 4))
@@ -191,18 +193,20 @@ class VisualOdometry (Camera):
         self.translationMatrix = []
         self.idFramePreviuos = 0
         self.mask = []
-        self.points3D = None
-
 
         # Cria o objeto FAST com parâmetros específicos
         self.fastDetector = cv2.FastFeatureDetector_create(threshold=25, nonmaxSuppression=True, type=2 )
 
-    def FrameProcess(self):      
-        frameFiltered = self.framesLoaded[self.idFrame].copy()
+    def FrameProcess(self):
+        # frame = cv2.resize(frame, (FrameWidth, FrameHeight))
+        # Convert Frame RGB on Gray scale
+        frameGray = cv2.cvtColor(self.framesLoaded[self.idFrame], cv2.COLOR_BGR2GRAY)        
+        
+        frameFiltered = frameGray
         # frameFiltered = self.BandPassFilter(frameGray)
-        # tamanho_kernel = (9, 9)
-        # desvio_padrao = 3  # Valor maior para mais desfoque
-        # frameFiltered = cv2.GaussianBlur(frameFiltered, tamanho_kernel, desvio_padrao)
+        # tamanho_kernel = (7, 7)
+        # desvio_padrao = 12  # Valor maior para mais desfoque
+        # frameFiltered = cv2.GaussianBlur(frameGray, tamanho_kernel, desvio_padrao)
 
         # self.PrintCustomFrame("Frame filtred", frameFiltered)
         return frameFiltered
@@ -219,12 +223,13 @@ class VisualOdometry (Camera):
 
             # Keeps only the points with a better response
             # dif = len(keypoints)
-            response = 20
-            keypointsgood = [ kp for kp in keypoints if kp.response > response ]
-            while(len(keypointsgood) < 25):
-                keypointsgood = [ kp for kp in keypoints if kp.response > response ]
-                response -= 5
-            keypoints = keypointsgood
+            # response = 150
+            # keypointsgood = [ kp for kp in keypoints if kp.response > response ]
+            # while(len(keypointsgood) < 25):
+            #     keypointsgood = [ kp for kp in keypoints if kp.response > response ]
+            #     response -= 5
+            #     print(response)
+            # keypoints = keypointsgood
 
             # Converts the keypoints to a numpy array
             keypoints = np.array([kp.pt for kp in keypoints], dtype=np.float32)
@@ -248,8 +253,8 @@ class VisualOdometry (Camera):
 
     def TrackingFutures(self):
         # Parameters for Lucas-Kanade optical flow
-        LucasKanadeParams = dict(winSize=(15, 15),  # Slightly larger window to capture more context
-                                 maxLevel=4,  # Considers more levels in the pyramid to handle larger movements
+        LucasKanadeParams = dict(winSize=(21, 21),  # Slightly larger window to capture more context
+                                 maxLevel=3,  # Considers more levels in the pyramid to handle larger movements
                                  criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 50, 0.01))  # Stricter criteria for accuracy             
         
         if ( (self.idFrame == self.idFramePreviuos + 5) or (len(self.featuresTracked[self.idFrame - 1]) < 20)):
@@ -274,30 +279,20 @@ class VisualOdometry (Camera):
         # Save only new corners that have matched
         self.featuresTracked.append(opticalFlow[status[:, 0] == 1]) 
 
-        if( self.idFrame < 200 ):
-            self.DrawFeaturesMatched()
-            self.FramesOverlapping(self.DrawFeaturesTracked(newFeatures, self.featuresTracked[self.idFrame - 1]))
+        self.DrawFeaturesMatched()
+        # self.FramesOverlapping(self.DrawFeaturesTracked(newFeatures, self.featuresTracked[self.idFrame - 1]))  
         
         self.dataLogger.info(f'\n featuresTracked ({self.idFrame}) \n {self.featuresTracked[self.idFrame]}')
         return True
 
-    def DrawFeaturesMatched(self, numPoints=5):
+    def DrawFeaturesMatched(self, numPoints = 5):
         if self.idFrame < 1:
             return
 
-        # Copia os quadros atuais e anteriores
         newFrame = self.framesLoaded[self.idFrame].copy()
         oldFrame = self.framesLoaded[self.idFrame - 1].copy()
-
-        # Converte para RGB se estiver em escala de cinza
-        if len(newFrame.shape) == 2:
-            newFrame = cv2.cvtColor(newFrame, cv2.COLOR_GRAY2BGR)
-        if len(oldFrame.shape) == 2:
-            oldFrame = cv2.cvtColor(oldFrame, cv2.COLOR_GRAY2BGR)
-
-        # Adiciona texto nos quadros
-        cv2.putText(newFrame, f'Frame: {self.idFrame}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
-        cv2.putText(oldFrame, f'Frame: {self.idFrame - 1}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.putText (newFrame, f'Frame: {self.idFrame}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA )
+        cv2.putText (oldFrame, f'Frame: {self.idFrame - 1}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA )
 
         # Cria uma imagem composta para visualização
         height1, width1 = self.frameHeight, self.frameWidth
@@ -306,16 +301,10 @@ class VisualOdometry (Camera):
         compositeImage[:height1, :width1] = oldFrame
         compositeImage[:height2, width1:width1 + width2] = newFrame
 
-        # Verifica se há características suficientes para desenhar
-        if len(self.featuresTracked[self.idFrame - 1]) == 0 or len(self.featuresTracked[self.idFrame]) == 0:
-            self.dataLogger.warning("Nenhuma característica encontrada para desenhar.")
-            return
-
         # Seleciona um subconjunto aleatório dos pontos correspondentes
-        numPoints = min(numPoints, len(self.featuresTracked[self.idFrame - 1]), len(self.featuresTracked[self.idFrame]))
-        indices = np.random.choice(len(self.featuresTracked[self.idFrame - 1]), numPoints, replace=False)
+        numPoints = min(numPoints, len(self.featuresTracked[self.idFrame - 1]))
+        indices = np.random.choice(len(self.featuresTracked[self.idFrame - 1]), numPoints)
 
-        # Desenha as correspondências
         for i in indices:
             p1 = self.featuresTracked[self.idFrame - 1][i]
             p2 = self.featuresTracked[self.idFrame][i]
@@ -326,46 +315,17 @@ class VisualOdometry (Camera):
             cv2.circle(compositeImage, pt2, 5, (0, 0, 255), -1)
 
         # Mostra a imagem com correspondências
-        self.PrintCustomFrame("Features matched", self.ResizeImage(compositeImage, 1920, 1080))
+        self.PrintCustomFrame("Featrues matched", self.resizeImage(compositeImage, 1920, 1080))
 
     def DrawFeaturesTracked(self, newFeatures, oldFeatures):
-        """
-        Desenha os recursos rastreados no quadro atual.
-        
-        Parâmetros:
-        newFeatures (lista de tuplas): Lista de novos pontos de recurso.
-        oldFeatures (lista de tuplas): Lista de pontos de recurso antigos.
-        
-        Retorna:
-        frameMask: Quadro com linhas e círculos de rastreamento desenhados.
-        """
-        currentFrame = self.framesLoaded[self.idFrame]
-
-        # Verificar se currentFrame está no formato BGR
-        if len(currentFrame.shape) == 2:  # Se o quadro atual estiver em escala de cinza
-            currentFrame = cv2.cvtColor(currentFrame, cv2.COLOR_GRAY2BGR)
-
-        # Inicializar self.mask se necessário
-        if self.mask is None or self.mask.shape != currentFrame.shape:
-            self.mask = np.zeros_like(currentFrame)
-
-        # Iterar pelos novos e antigos pontos de recurso
+        currentFrame = self.framesLoaded[self.idFrame].copy()
         for new, old in zip(newFeatures, oldFeatures):
-            # Extrair coordenadas e converter para inteiros
-            a, b = map(int, new)
-            c, d = map(int, old)
-            
-            # Desenhar uma linha na máscara do ponto antigo para o ponto novo
-            cv2.line(self.mask, (c, d), (a, b), (0, 255, 0), 1)
-            
-            # Desenhar um círculo no quadro atual no novo ponto
-            cv2.circle(currentFrame, (a, b), 2, (0, 0, 255), 2)
-        
-        # Combinar o quadro atual e a máscara com as linhas desenhadas
-        frameMask = cv2.addWeighted(currentFrame, 1, self.mask, 1, 0)
-        
+            a, b = int(new[0]), int(new[1])  # Converte para inteiros
+            c, d = int(old[0]), int(old[1])  # Converte para inteiros            
+            self.mask = cv2.line(self.mask, (a, b), (c, d), (0, 255, 0), 1)
+            circle = cv2.circle(currentFrame, (a, b), 2, (0, 0, 255), 2)
+            frameMask = cv2.add(circle, self.mask)
         return frameMask
-
 
     def CalculateEssentialMatrix(self):
         # Calculates the essential matrix using the tracked features
@@ -391,19 +351,19 @@ class VisualOdometry (Camera):
 
             # # Extrai os pontos de features para passar para a função de desenho
             # # Você pode precisar ajustar como os pontos são extraídos de suas estruturas de dados
-            points1 = np.int32(self.featuresTracked[self.idFrame - 1])
-            points2 = np.int32(self.featuresTracked[self.idFrame])
+            # points1 = np.int32(self.featuresTracked[self.idFrame - 1])
+            # points2 = np.int32(self.featuresTracked[self.idFrame])
 
-            # Desenha linhas epipolares nas imagens
-            img1EpipolarLines, img2EpipolarLines = self.DrawEpipolarLines(self.framesLoaded[self.idFrame -1], self.framesLoaded[self.idFrame], points1, points2, F)
+            # # Desenha linhas epipolares nas imagens
+            # img1EpipolarLines, img2EpipolarLines = self.DrawEpipolarLines(self.framesLoaded[self.idFrame -1], self.framesLoaded[self.idFrame], points1, points2, F)
 
-            # Exibe as imagens com linhas epipolares
-            cv2.imshow("Image 1 with Epipolar Lines", img1EpipolarLines)
-            cv2.imshow("Image 2 with Epipolar Lines", img2EpipolarLines)
+            # # Exibe as imagens com linhas epipolares
+            # cv2.imshow("Image 1 with Epipolar Lines", img1EpipolarLines)
+            # cv2.imshow("Image 2 with Epipolar Lines", img2EpipolarLines)
 
-            self.dataLogger.info(f'\n essentialMatrix \n {self.essentialMatrix}')
-            self.dataLogger.info(f'\n rotation \n {self.rotationMatrix}')
-            self.dataLogger.info(f'\n essentialMatrixTranslation \n {self.translationMatrix}')
+            # self.dataLogger.info(f'\n essentialMatrix \n {self.essentialMatrix}')
+            # self.dataLogger.info(f'\n rotation \n {self.rotationMatrix}')
+            # self.dataLogger.info(f'\n essentialMatrixTranslation \n {self.translationMatrix}')
     
     def DecomposeEssentialMatrix(self):
         # Retrieves the rotation and translation matrices from the essential matrix
@@ -426,75 +386,56 @@ class VisualOdometry (Camera):
         F = K_inv.T @ E @ K_inv
         return F
 
-    def DrawEpipolarLines(self, img1, img2, points1, points2, F, numLines=10):
+    def DrawEpipolarLines(self, img1, img2, points1, points2, F):
         """Desenha linhas epipolares e pontos correspondentes entre duas imagens baseadas na matriz fundamental.
 
         Args:
         img1, img2 (np.array): Imagens nas quais as linhas epipolares serão desenhadas.
         points1, points2 (np.array): Pontos correspondentes nas imagens.
         F (np.array): Matriz fundamental.
-        numLines (int): Número de linhas epipolares a serem desenhadas.
 
         Returns:
         img1, img2 (np.array): Imagens com linhas e pontos desenhados.
         """
-        # Converte para RGB se estiver em escala de cinza
-        if len(img1.shape) == 2 or img1.shape[2] == 1:
-            img1 = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR)
-        if len(img2.shape) == 2 or img2.shape[2] == 1:
-            img2 = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR)
-
-        if len(points1) > numLines:
-            idx = np.random.choice(len(points1), numLines, replace=False)
-            points1 = points1[idx]
-            points2 = points2[idx]
-
-        # Calcula as linhas epipolares para os pontos selecionados
+        # Linhas na primeira imagem
         lines1 = cv2.computeCorrespondEpilines(points2.reshape(-1, 1, 2), 2, F)
         lines1 = lines1.reshape(-1, 3)
-        img1_epilines = img1.copy()
-        img2_epilines = img2.copy()
+        img1_color = cv2.cvtColor(img1, cv2.COLOR_GRAY2BGR) if img1.ndim == 2 else img1.copy()
 
-        # Desenha as linhas epipolares nas duas imagens com a mesma cor
-        for r, pt1, pt2 in zip(lines1, points1, points2):
+        for r, pt in zip(lines1, points1):
             color = tuple(np.random.randint(0, 255, 3).tolist())
-            x0, y0 = map(int, [0, -r[2] / r[1]])
-            x1, y1 = map(int, [img1.shape[1], -(r[2] + r[0] * img1.shape[1]) / r[1]])
-            img1_epilines = cv2.line(img1_epilines, (x0, y0), (x1, y1), color, 1)
-            img1_epilines = cv2.circle(img1_epilines, tuple(pt1), 5, color, -1)
+            x0, y0 = map(int, [0, -r[2]/r[1] ])
+            x1, y1 = map(int, [img1.shape[1], -(r[2]+r[0]*img1.shape[1])/r[1]])
+            img1_color = cv2.line(img1_color, (x0, y0), (x1, y1), color, 1)
+            img1_color = cv2.circle(img1_color, tuple(pt), 5, color, -1)
 
-            lines2 = cv2.computeCorrespondEpilines(pt1.reshape(-1, 1, 2), 1, F)
-            lines2 = lines2.reshape(-1, 3)
-            for r2 in lines2:
-                x0, y0 = map(int, [0, -r2[2] / r2[1]])
-                x1, y1 = map(int, [img2.shape[1], -(r2[2] + r2[0] * img2.shape[1]) / r2[1]])
-                img2_epilines = cv2.line(img2_epilines, (x0, y0), (x1, y1), color, 1)
-                img2_epilines = cv2.circle(img2_epilines, tuple(pt2), 5, color, -1)
+        # Linhas na segunda imagem
+        lines2 = cv2.computeCorrespondEpilines(points1.reshape(-1, 1, 2), 1, F)
+        lines2 = lines2.reshape(-1, 3)
+        img2_color = cv2.cvtColor(img2, cv2.COLOR_GRAY2BGR) if img2.ndim == 2 else img2.copy()
 
-        return img1_epilines, img2_epilines
-   
-    def FramesOverlapping(self, newFrame):    
-        oldFrame = self.framesLoaded[self.idFrame - 1]
+        for r, pt in zip(lines2, points2):
+            color = tuple(np.random.randint(0, 255, 3).tolist())
+            x0, y0 = map(int, [0, -r[2]/r[1] ])
+            x1, y1 = map(int, [img2.shape[1], -(r[2]+r[0]*img2.shape[1])/r[1]])
+            img2_color = cv2.line(img2_color, (x0, y0), (x1, y1), color, 1)
+            img2_color = cv2.circle(img2_color, tuple(pt), 5, color, -1)
 
-        # Converter o quadro anterior para escala de cinza, se necessário
-        if len(oldFrame.shape) == 3 and oldFrame.shape[2] == 3:
-            grayFrameOld = cv2.cvtColor(oldFrame, cv2.COLOR_BGR2GRAY)
-        else:
-            grayFrameOld = oldFrame
+        return img1_color, img2_color
+    
+    def FramesOverlapping(self, newFrame,):    
+        # Converte ambas as imagens para escala de cinza
+        grayFrameOld = cv2.cvtColor(self.framesLoaded[self.idFrame - 1], cv2.COLOR_BGR2GRAY)
+        # O frame atual mantém suas cores para preservar os gráficos coloridos
+        colorFrameNew = newFrame
 
-        # Garantir que o novo quadro esteja no formato BGR
-        if len(newFrame.shape) == 2:
-            colorFrameNew = cv2.cvtColor(newFrame, cv2.COLOR_GRAY2BGR)
-        else:
-            colorFrameNew = newFrame
-
-        # Criar a imagem anáglifa
+        # Cria o anaglifo usando o frame em escala de cinza e os canais de cores do frame atual
+        # Este passo assume que você quer um efeito visual usando o vermelho do frame anterior e verde/azul do novo
         anaglyphFrame = cv2.merge((grayFrameOld, colorFrameNew[:,:,1], colorFrameNew[:,:,2]))
 
-        # Adicionar o número de cantos detectados à imagem
+        # Add the number of detected corners to the image
         text = f"Number of corners: {len(self.featuresTracked[self.idFrame])}"
         cv2.putText(anaglyphFrame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
-
         self.PrintCustomFrame("Frame with anaglyph", anaglyphFrame)
 
 class Plots:
@@ -504,24 +445,21 @@ class Plots:
         self.xValuesGroundTruth = []
         self.yValuesGroundTruth = []
         self.zValuesGroundTruth = []
-        self.xValuesTrajectory = []
-        self.yValuesTrajectory = []
-        self.zValuesTrajectory = []
-        self.errorX = []
-        self.errorY = []
-        self.errorZ = []
-        self.errorX.append(0.0)
-        self.errorY.append(0.0)
-        self.errorZ.append(0.0)
-                
-        self.relativePoseError = []
-        self.relativePoseError.append(0.0)
-        self.absoluteTrajectoryError = []
-        self.absoluteTrajectoryError.append(0.0)
+        self.xValuesTrajectoryComputer = []
+        self.yValuesTrajectoryComputer = []
+        self.zValuesTrajectoryComputer = []
+        self.xValuesTrajectoryRaspberry = []
+        self.yValuesTrajectoryRaspberry = []
+        self.zValuesTrajectoryRaspberry = []
+        self.errorXComputer = []
+        self.errorYComputer = []
+        self.errorZComputer = []
+        self.errorXRaspberry = []
+        self.errorYRaspberry = []
+        self.errorZRaspberry = []
         self.errorIDs = []
-        
-        self.trajectoryPath = "Resultados/OutputTrajectory.txt"
-        open(self.trajectoryPath, 'w')
+        self.trajectoryPathComputer = "Resultados/OutputTrajectoryComputer.txt"
+        self.trajectoryPathRaspberry = "Resultados/OutputTrajectoryRaspberry.txt"
 
         # self.fig, self.ax = plt.subplots()
         self.fig3d = plt.figure()
@@ -530,75 +468,68 @@ class Plots:
         self.fig2d = plt.figure()
         self.ax2d = self.fig2d.add_subplot(111)
 
-        self.figErroAxes = plt.figure()
-        self.errorAxes = self.figErroAxes.add_subplot(111)
+        self.fig2xy = plt.figure()
+        self.ax2xy = self.fig2xy.add_subplot(111)
 
-        self.figError = plt.figure()
-        self.errorMean  = self.figError.add_subplot(111)
+        self.fig1d = plt.figure()
+        self.error = self.fig1d.add_subplot(111)
 
         self.ax3d.set_xlabel('X')
         self.ax3d.set_ylabel('Y')
         self.ax3d.set_zlabel('Z')
-        self.ax3d.set_title('3D Camera trajectory')
+        self.ax3d.set_title('3D Camera Trajectory')
         self.ax3d.grid()
 
         self.ax2d.set_xlabel('X')
         self.ax2d.set_ylabel('Z')
-        self.ax2d.set_title('2D Camera trajectory')
+        self.ax2d.set_title('2D Camera Trajectory')
 
-        self.errorAxes.set_xlabel('Frame Number')
-        self.errorAxes.set_ylabel('Metros')
-        self.errorAxes.set_title('Error between ground truth axes and trajectory axes')
+        self.ax2xy.set_xlabel('X')
+        self.ax2xy.set_ylabel('Y')
+        self.ax2xy.set_title('2D Camera Trajectory')
 
-        self.errorMean .set_xlabel('Frame Number')
-        self.errorMean .set_ylabel('Metros')
-        self.errorMean .set_title('Error between ground truth and trajectory')
+        self.error.set_xlabel('Frame')
+        self.error.set_ylabel('Error')
+        self.error.set_title('Error between ground truth and tranjectory')
 
     def PrintPlots(self):
 
         self.ax2d.plot(self.xValuesGroundTruth, self.zValuesGroundTruth, color = 'blue', label='GroundTruth')
-        # self.ax2d.scatter(self.xValuesGroundTruth, self.zValuesGroundTruth, color='red', marker='x')
 
-        self.ax2d.plot(self.xValuesTrajectory, self.zValuesTrajectory, color = 'red', label='Trajectory')
-        # self.ax2d.scatter(self.xValuesTrajectory, self.zValuesTrajectory, color='red', marker='o')
+        self.ax2d.plot(self.xValuesTrajectoryComputer, self.zValuesTrajectoryComputer, color = 'red', label='TrajectoryComputer')
+        self.ax2d.plot(self.xValuesTrajectoryRaspberry, self.zValuesTrajectoryRaspberry, color = 'green', label='TrajectoryRaspberry')
 
-        self.errorAxes.plot(self.errorIDs, self.errorX, color = 'blue', label='errorX')
-        self.errorAxes.plot(self.errorIDs, self.errorY, color = 'green', label='errorY')
-        self.errorAxes.plot(self.errorIDs, self.errorZ, color = 'red', label='errorZ')
-        self.errorAxes.plot(self.errorIDs, np.zeros(len(self.errorIDs)), color = 'black')
-        # self.errorAxes.scatter(self.errorIDs, self.errorX, color = 'blue', marker='.')
-        # self.errorAxes.scatter(self.errorIDs, self.errorY, color = 'green', marker='.')
-        # self.errorAxes.scatter(self.errorIDs, self.errorZ, color = 'red', marker='.')
+        self.ax2xy.plot(self.xValuesGroundTruth, self.yValuesGroundTruth, color = 'blue', label='GroundTruth')
+        self.ax2xy.plot(self.xValuesTrajectoryComputer, self.yValuesTrajectoryComputer, color = 'red', label='TrajectoryComputer')
+        self.ax2xy.plot(self.xValuesTrajectoryRaspberry, self.yValuesTrajectoryRaspberry, color = 'green', label='TrajectoryRaspberry')
 
-        self.errorMean.plot(self.errorIDs, self.absoluteTrajectoryError, color = 'blue', label='Absolute Trajectory Error')
-        self.errorMean.plot(self.errorIDs, self.relativePoseError, color = 'green', label='Relative Pose Error')
-        self.errorMean.plot(self.errorIDs, np.zeros(len(self.errorIDs)), color = 'black')
-
-        # self.errorMean.scatter(self.errorIDs, self.absoluteTrajectoryError, color = 'red', marker='.')
-        # self.errorMean.scatter(self.errorIDs, self.relativePoseError, color = 'red', marker='.')
+        self.error.plot(self.errorIDs, self.errorXComputer, color = 'blue', label='errorXComputer')
+        self.error.plot(self.errorIDs, self.errorYComputer, color = 'green', label='errorYComputer')
+        self.error.plot(self.errorIDs, self.errorZComputer, color = 'red', label='errorZComputer')
+        self.error.plot(self.errorIDs, self.errorXRaspberry, color = 'purple', label='errorXRaspberry')
+        self.error.plot(self.errorIDs, self.errorYRaspberry, color = 'orange', label='errorYRaspberry')
+        self.error.plot(self.errorIDs, self.errorZRaspberry, color = 'magenta', label='errorZRaspberry')
+        self.error.plot(self.errorIDs, np.zeros(len(self.errorIDs)), color = 'black')
 
         self.ax3d.plot(self.xValuesGroundTruth, self.yValuesGroundTruth, self.zValuesGroundTruth, color = 'blue', label='GroundTruth')
-        # self.ax3d.scatter(self.xValuesGroundTruth, self.yValuesGroundTruth, self.zValuesGroundTruth, color='red', marker='x')
 
-        self.ax3d.plot(self.xValuesTrajectory, self.yValuesTrajectory, self.zValuesTrajectory, color = 'red', label='Trajectory')
-        # self.ax3d.scatter(self.xValuesTrajectory, self.yValuesTrajectory, self.zValuesTrajectory, color='blue', marker='o')
+        self.ax3d.plot(self.xValuesTrajectoryComputer, self.yValuesTrajectoryComputer, self.zValuesTrajectoryComputer, color = 'red', label='TrajectoryComputer')
+        self.ax3d.plot(self.xValuesTrajectoryRaspberry, self.yValuesTrajectoryRaspberry, self.zValuesTrajectoryRaspberry, color = 'green', label='TrajectoryRaspberry')
 
         self.numPlots += 1
         self.ShowPlot()
 
     def ShowPlot(self):
-        dataTimeNow = datetime.now()
         if (self.numPlots > 0):
             if (self.numPlots == 1):     
                 self.ax2d.legend()
+                self.ax2xy.legend()
                 self.ax3d.legend()
-                self.errorMean .legend()
-                self.errorAxes.legend()
-            self.fig2d.savefig(f"Resultados/Trajectory2D{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s.pdf")
-            self.fig3d.savefig(f"Resultados/Trajectory3D{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s.pdf")
-            self.figErroAxes.savefig(f"Resultados/PlotErrorAxes{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s.pdf")
-            self.figError.savefig(f"Resultados/PlotError{dataTimeNow.strftime('%H')}h{dataTimeNow.strftime('%M')}m{dataTimeNow.strftime('%S')}s.pdf")
-                        
+                self.error.legend()
+            self.fig1d.savefig("Resultados/PlotError.pdf")
+            self.fig2xy.savefig("Resultados/Trajectory2DXYComputerRaspberry.pdf")            
+            self.fig2d.savefig("Resultados/Trajectory2DXZComputerRaspberry.pdf")
+            self.fig3d.savefig("Resultados/Trajectory3D.pdf")            
             plt.show()
 
         else:
@@ -614,19 +545,28 @@ class Plots:
             # print(f"GroundTruth : x: {trajectory[0, 3]}, y: {trajectory[1, 3]}, z: {trajectory[2, 3]}" )
             # self.dataLogger.info(f"GroundTruth : x: {trajectory[0, 3]}, y: {trajectory[1, 3]},  z: {trajectory[2, 3]}" )
 
-        if (type == 'Trajectory'):
+        if (type == 'TrajectoryComputer'):
             # multiply trajectory by -1 for inverte for really trajecotry
-            x = trajectory[0, 0] * (1)
-            y = trajectory[1, 0] * (1)
-            z = trajectory[2, 0] * (1)
-            self.xValuesTrajectory.append(x)
-            self.yValuesTrajectory.append(y)
-            self.zValuesTrajectory.append(z)
+            x = trajectory[0]
+            y = trajectory[1]
+            z = trajectory[2]
+            self.xValuesTrajectoryComputer.append(x)
+            self.yValuesTrajectoryComputer.append(y)
+            self.zValuesTrajectoryComputer.append(z)
+
+        if (type == 'TrajectoryRaspberry'):
+            # multiply trajectory by -1 for inverte for really trajecotry
+            x = trajectory[0]
+            y = trajectory[1]
+            z = trajectory[2]
+            self.xValuesTrajectoryRaspberry.append(x)
+            self.yValuesTrajectoryRaspberry.append(y)
+            self.zValuesTrajectoryRaspberry.append(z)
             
-            # Opening a file for appending the poinys
-            self.fileOutput = open(self.trajectoryPath, "a")
-            self.fileOutput.write(f"{x} {y} {z}\n")
-            self.fileOutput.close()
+            # # Opening a file for appending the poinys
+            # self.fileOutput = open(self.trajectoryPath, "a")
+            # self.fileOutput.write(f"{x} {y} {z}\n")
+            # self.fileOutput.close()
             
             # self.dataLogger.info(f"Trajectory : x: {trajectory[0, 3]},  y: {trajectory[1, 3]},  z: {trajectory[2, 3]}")
    
@@ -635,19 +575,15 @@ class Trajectory (Plots):
         super().__init__(dataLogger)
         self.vo = voInstance
         self.dataLogger = dataLogger
+        self.allPointsTrajectory = []
+        self.trajectory = np.identity(4)        
+        self.allPointsTrajectory.append(self.trajectory)
         self.typeTrajectory = 'Trajectory'
         self.typeGroundTruth = 'GroundTruth'
         # Criar um image em branco
-        self.imageTrajectory = np.ones((1080, 1920, 3), dtype=np.uint8) * 255
-        self.trajectoryPosition = np.zeros((3, 1), dtype=np.float32)
-        self.trajectoryRotation = np.eye(3)
-        self.trajectory = []
-        self.trajectory.append(self.trajectoryPosition)
-        self.absoluteErrors = []
-        self.absoluteErrors.append(0.0)
-        self.overallRelErrors = []
-        self.overallRelErrors.append(0.0)
-
+        self.imageTrajectory = np.ones((1080, 1920, 3), dtype=np.uint8) * 255  # imagem branco        
+        self.pos = np.zeros((3, 1), dtype=np.float32)
+        self.rot = np.eye(3)
 
     def PrintTrajectory(self):        
         # Convert the camera positions to pixel coordinates on the image
@@ -657,13 +593,17 @@ class Trajectory (Plots):
         self.errorIDs.append(self.vo.idFrame)
         colorGroundTruth = (255, 0, 0)
         colorTrajectory = (0, 0, 255)
+        colorTrajectoryRaspberry = (0, 128, 0)
         colorError = (10, 10, 10)
+
         textPositionGroundTruth = (10, 40)
         textPositionTrajectory = (10, 60)
-        textPositionError = (10, 80)
+        textPositionTrajectoryRaspberry = (10, 80)
+        textPositionError = (10, 100)
        
         textPositionAxixZ = (10, centerZ)
         textPositionAxixX = (centerX + 20  , self.imageTrajectory.shape[0] - 100)
+        
 
         cv2.putText(self.imageTrajectory, 'Z', textPositionAxixZ, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
         cv2.putText(self.imageTrajectory, 'X', textPositionAxixX, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
@@ -683,17 +623,37 @@ class Trajectory (Plots):
         # Draw the current position as a red circle
         # cv2.circle(self.imageTrajectory, (centerX + int(self.xValuesTrajectory[self.vo.idFrame]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame])), 2, (0, 255, 0), -1)
         # Draw the trajectory on the image as a line
-        cv2.line(self.imageTrajectory, (centerX + int(self.xValuesTrajectory[self.vo.idFrame]), centerZ - int(self.zValuesTrajectory[self.vo.idFrame]))
-                                    , (centerX + int(self.xValuesTrajectory[self.vo.idFrame - 1]), centerZ - int(self.zValuesTrajectory[self.vo.idFrame - 1])), colorTrajectory, 2)
+        cv2.line(self.imageTrajectory, (centerX + int(self.xValuesTrajectoryComputer[self.vo.idFrame]), centerZ - int(self.zValuesTrajectoryComputer[self.vo.idFrame]))
+                                    , (centerX + int(self.xValuesTrajectoryComputer[self.vo.idFrame - 1]), centerZ - int(self.zValuesTrajectoryComputer[self.vo.idFrame - 1])), colorTrajectory, 2)
         
         # Add text with X, Y, and Z coordinates at the current position
-        textValuesTrajectory = (f"Trajectory X: {self.xValuesTrajectory[self.vo.idFrame]:.2f}, Y: {self.yValuesTrajectory[self.vo.idFrame]:.2f}, Z: {self.zValuesTrajectory[self.vo.idFrame]:.2f}")
-        # textPositionTrajectory = (centerX + int(self.xValuesTrajectory[self.vo.idFrame - 1]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame - 1]) - 20)
-        cv2.putText(self.imageTrajectory, textValuesTrajectory, textPositionTrajectory, cv2.FONT_HERSHEY_SIMPLEX, 0.5, colorTrajectory, 1)
+        textValuesTrajectoryComputer = (f"Trajectory Computer X: {self.xValuesTrajectoryComputer[self.vo.idFrame]:.2f}, Y: {self.yValuesTrajectoryComputer[self.vo.idFrame]:.2f}, Z: {self.zValuesTrajectoryComputer[self.vo.idFrame]:.2f}")
+        # textPositionTrajectory = (centerX + int(self.xValuesTrajectoryComputer[self.vo.idFrame - 1]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame - 1]) - 20)
+        cv2.putText(self.imageTrajectory, textValuesTrajectoryComputer, textPositionTrajectory, cv2.FONT_HERSHEY_SIMPLEX, 0.5, colorTrajectory, 1)
         # endregion
+        
+        cv2.line(self.imageTrajectory, (centerX + int(self.xValuesTrajectoryRaspberry[self.vo.idFrame]), centerZ - int(self.zValuesTrajectoryRaspberry[self.vo.idFrame]))
+                                    , (centerX + int(self.xValuesTrajectoryRaspberry[self.vo.idFrame - 1]), centerZ - int(self.zValuesTrajectoryRaspberry[self.vo.idFrame - 1])), colorTrajectoryRaspberry, 2)
+        
+        # Add text with X, Y, and Z coordinates at the current position
+        textValuesTrajectoryRaspberry = (f"Trajectory Raspberry X: {self.xValuesTrajectoryRaspberry[self.vo.idFrame]:.2f}, Y: {self.yValuesTrajectoryRaspberry[self.vo.idFrame]:.2f}, Z: {self.zValuesTrajectoryRaspberry[self.vo.idFrame]:.2f}")
+        # textPositionTrajectory = (centerX + int(self.xValuesTrajectoryRaspberry[self.vo.idFrame - 1]), centerZ - int(self.zValuesGroundTruth[self.vo.idFrame - 1]) - 20)
+        cv2.putText(self.imageTrajectory, textValuesTrajectoryRaspberry, textPositionTrajectoryRaspberry, cv2.FONT_HERSHEY_SIMPLEX, 0.5, colorTrajectoryRaspberry, 1)
+        
+        
+
+        # region error        
+        # Add text with X, Y, and Z coordinates at the current position
+        self.errorXComputer.append (self.xValuesTrajectoryComputer[self.vo.idFrame] - self.xValuesGroundTruth[self.vo.idFrame] )
+        self.errorYComputer.append (self.yValuesTrajectoryComputer[self.vo.idFrame] - self.yValuesGroundTruth[self.vo.idFrame] )
+        self.errorZComputer.append (self.zValuesTrajectoryComputer[self.vo.idFrame] - self.zValuesGroundTruth[self.vo.idFrame] )
+
+        self.errorXRaspberry.append (self.xValuesTrajectoryRaspberry[self.vo.idFrame] - self.xValuesGroundTruth[self.vo.idFrame] )
+        self.errorYRaspberry.append (self.yValuesTrajectoryRaspberry[self.vo.idFrame] - self.yValuesGroundTruth[self.vo.idFrame] )
+        self.errorZRaspberry.append (self.zValuesTrajectoryRaspberry[self.vo.idFrame] - self.zValuesGroundTruth[self.vo.idFrame] )
 
         # Add error text with X, Y, and Z coordinates at the current position
-        textValuesError = (f"Error X: {self.errorX[self.vo.idFrame]:.2f}, Y: {self.errorY[self.vo.idFrame]:.2f}, Z: {self.errorZ[self.vo.idFrame]:.2f}")
+        textValuesError = (f"Error X: {self.errorXComputer[self.vo.idFrame]:.2f}, Y: {self.errorYComputer[self.vo.idFrame]:.2f}, Z: {self.errorZComputer[self.vo.idFrame]:.2f}")
         cv2.putText(self.imageTrajectory, textValuesError, textPositionError, cv2.FONT_HERSHEY_SIMPLEX, 0.5, colorError, 1)
         # endregion
 
@@ -703,82 +663,50 @@ class Trajectory (Plots):
         textGroundTruth = f"Ground Truth X: {self.xValuesGroundTruth[self.vo.idFrame]:.2f}, Y: {self.yValuesGroundTruth[self.vo.idFrame]:.2f}, Z: {self.zValuesGroundTruth[self.vo.idFrame]:.2f}"
         cv2.putText(self.imageTrajectory, textGroundTruth, textPositionGroundTruth, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-        textValuesTrajectory = f"Trajectory X: {self.xValuesTrajectory[self.vo.idFrame]:.2f}, Y: {self.yValuesTrajectory[self.vo.idFrame]:.2f}, Z: {self.zValuesTrajectory[self.vo.idFrame]:.2f}"
-        cv2.putText(self.imageTrajectory, textValuesTrajectory, textPositionTrajectory, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        textValuesTrajectoryComputer = f"Trajectory Computer X: {self.xValuesTrajectoryComputer[self.vo.idFrame]:.2f}, Y: {self.yValuesTrajectoryComputer[self.vo.idFrame]:.2f}, Z: {self.zValuesTrajectoryComputer[self.vo.idFrame]:.2f}"
+        cv2.putText(self.imageTrajectory, textValuesTrajectoryComputer, textPositionTrajectory, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+        textValuesTrajectoryRaspberry = f"Trajectory Raspberry X: {self.xValuesTrajectoryRaspberry[self.vo.idFrame]:.2f}, Y: {self.yValuesTrajectoryRaspberry[self.vo.idFrame]:.2f}, Z: {self.zValuesTrajectoryRaspberry[self.vo.idFrame]:.2f}"
+        cv2.putText(self.imageTrajectory, textValuesTrajectoryRaspberry, textPositionTrajectoryRaspberry, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
         # Add error text with X, Y, and Z coordinates at the current position
-        textValuesError = (f"Error X: {self.errorX[self.vo.idFrame]:.2f}, Y: {self.errorY[self.vo.idFrame]:.2f}, Z: {self.errorZ[self.vo.idFrame]:.2f}")
+        textValuesError = (f"Error X: {self.errorXComputer[self.vo.idFrame]:.2f}, Y: {self.errorYComputer[self.vo.idFrame]:.2f}, Z: {self.errorZComputer[self.vo.idFrame]:.2f}")
         cv2.putText(self.imageTrajectory, textValuesError, textPositionError, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         # endregion
 
     def GetTrajectory(self):
-        if self.vo.idFrame > 0:
-            # Posições de ground truth anteriores e atuais
-            prevGroundTruthPose = np.array([self.xValuesGroundTruth[self.vo.idFrame - 1], self.yValuesGroundTruth[self.vo.idFrame - 1], self.zValuesGroundTruth[self.vo.idFrame - 1]])
-            currentGroundTruthPose = np.array([self.xValuesGroundTruth[self.vo.idFrame], self.yValuesGroundTruth[self.vo.idFrame], self.zValuesGroundTruth[self.vo.idFrame]])
-            
-            # Distância verdadeira e estimada
-            trueDistance = np.linalg.norm(currentGroundTruthPose - prevGroundTruthPose)
-            estimatedDistance = np.linalg.norm(self.vo.translationMatrix)
-            
-            # Fator de escala
-            self.scaleFactor = trueDistance / estimatedDistance if estimatedDistance != 0 else 1.0
+        # The position is given by
+        # C_n = C_(n-1) * T_n
+        # The camera's position and orientation at time n is given by
+        # C_n = R_(n,n-1) * C_(n-1) + T_(n,n-1)
         
-        # Ajuste a translação usando a escala
-        self.vo.translationMatrix *= self.scaleFactor
+        self.pos = self.pos + self.rot @ self.vo.translationMatrix  # Update the position using translation matrix
+        self.rot = self.rot @ self.vo.rotationMatrix  # Update the rotation using rotation matrix
+        self.trajectory = cv2.hconcat([self.rot, self.pos])  # Concatenates rotation and position to form the trajectory matrix
 
-        # Atualize a posição e rotação acumuladas
-        self.trajectoryPosition = self.trajectoryPosition + self.trajectoryRotation @ self.vo.translationMatrix
-        self.trajectoryRotation = self.trajectoryRotation @ self.vo.rotationMatrix
-        
-        self.trajectory.append(self.trajectoryPosition.copy())
-
-        # Erros absolutos para cada eixo
-        error_X = self.trajectoryPosition[0, 0] - currentGroundTruthPose[0]
-        error_Y = self.trajectoryPosition[1, 0] - currentGroundTruthPose[1]
-        error_Z = self.trajectoryPosition[2, 0] - currentGroundTruthPose[2]
-
-        self.errorX.append(error_X)
-        self.errorY.append(error_Y)
-        self.errorZ.append(error_Z)
-
-        # Erro absoluto total
-        absError = np.linalg.norm([error_X, error_Y, error_Z])
-        self.absoluteErrors.append(absError)
-
-        # Cálculo de ATE (Erro de Trajetória Absoluto)
-        ate = np.mean(self.absoluteErrors)
-        self.absoluteTrajectoryError.append(ate)
-
-        # Calcular o erro relativo total
-        realDistance = np.linalg.norm(currentGroundTruthPose)
-        overallRelError = (absError / realDistance) * 100 if realDistance != 0 else 0
-        self.overallRelErrors.append(overallRelError)
-
-        # Cálculo de RPE (Erro de Posicionamento Relativo)
-        prevEstimatedPose = np.array([self.trajectory[-2][0, 0], self.trajectory[-2][1, 0], self.trajectory[-2][2, 0]])
-        currentEstimatedPose = np.array([self.trajectory[-1][0, 0], self.trajectory[-1][1, 0], self.trajectory[-1][2, 0]])
-        rpe = np.linalg.norm((currentEstimatedPose - prevEstimatedPose) - (currentGroundTruthPose - prevGroundTruthPose))
-        self.relativePoseError.append(rpe)
-        
+        # self.dataLogger.info(f'\n trajectory \n {self.trajectory}')        
         return self.trajectory
 
 def main():
-    idCamera = 2
-    numFramesToLoad = 4510
-    liveON = False
     try:
-         # Analisa os argumentos manualmente
+        # instancias
+        dataLogger = ConfigDataLogger()
+        groundTruth = GroundTruth(dataLogger)
+        vo = VisualOdometry(dataLogger)
+        trajectory = Trajectory(dataLogger, vo)
+        lineNumber = 0
+
+        # Analisa os argumentos manualmente
         for i in range(1, len(sys.argv), 2):
-            if sys.argv[i] == '-idCam':
-                idCamera = int(sys.argv[i + 1])
+            if sys.argv[i] == '-id':
+                vo.idCamera = int(sys.argv[i + 1])
             elif sys.argv[i] == '-numFrames':
-                numFramesToLoad = int(sys.argv[i + 1])
+                vo.numFramesToLoad = int(sys.argv[i + 1])
             elif sys.argv[i] == '-live':
-                liveON = bool(sys.argv[i + 1])
+                vo.liveON = bool(sys.argv[i + 1])
             elif sys.argv[i] == '-help':
                 print("Flags:")
-                print("-idCam: Id form camera")
+                print("-id: Id form camera")
                 print("-numFrames: Number of frames that are load")
                 print("-live: True or False if the frames are capture from robot camera")
                 print("Struct: python meuprograma.py -id <idCamera> -numFrames <numFramesToLoad> -live <true>\n")
@@ -787,19 +715,6 @@ def main():
                 print(f"Argumento desconhecido: {sys.argv[i]}")
                 print("python meuprograma.py -id <idCamera> -numFrames <numFramesToLoad> -live <true>")
                 sys.exit(1)
- 
-        # instancias
-        dataLogger = ConfigDataLogger()
-        groundTruth = GroundTruth(dataLogger)
-        vo = VisualOdometry(dataLogger)
-        trajectory = Trajectory(dataLogger, vo)
-
-        if(idCamera != vo.idCamera):
-            vo.idCamera = idCamera
-        if(numFramesToLoad != vo.numFramesToLoad):
-            vo.numFramesToLoad = numFramesToLoad
-        if(liveON != vo.liveON):
-            vo.liveON = liveON     
 
         if(vo.liveON == True):
             vo.LoadFrames()
@@ -808,64 +723,59 @@ def main():
         if(vo.liveON == False):
             vo.LoadFrames()
             vo.mask = np.zeros_like(vo.framesStored[0])
-        
-        vo.CalibrationFile()
-
-        # Start
-        trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth)
-        trajectory.AddPointsToAxis(trajectory.trajectory[vo.idFrame], trajectory.typeTrajectory) 
-        trajectory.PrintTrajectory()
-
-        vo.LoadFrames()        
-        vo.DetectingFeaturesFASTMethod()
-        
-        vo.LoadFrames()   
-
-        for i in tqdm(range(len(vo.framesStored))):
-            vo.TrackingFutures()
-            vo.CalculateEssentialMatrix()
             
-            trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth) # rever idFrame
-            trajectory.AddPointsToAxis(trajectory.GetTrajectory()[vo.idFrame], trajectory.typeTrajectory)
-            trajectory.PrintTrajectory()
-          
-            if(vo.idStored ==  vo.numFramesToLoad):
-                break
-            vo.LoadFrames()
-              
-            cv2.waitKey(1)
-            
-    except IndexError:
-        return
-    # except MemoryError:
-        # print("Erro: Index error \nFim de programa.")
+        vo.idFrame = 0
+        with open(trajectory.trajectoryPathComputer, "r") as fileComputer, open(trajectory.trajectoryPathRaspberry, "r") as fileRaspberry:
+            linesComputer = fileComputer.readlines()
+            linesRaspberry = fileRaspberry.readlines()
 
+            currentLineNumber = len(linesComputer)
+            vo.numFramesToLoad = currentLineNumber  
+            
+            for linePc, lineRasp in tqdm(zip(linesComputer, linesRaspberry)):
+                elementosComputer = np.fromstring(linePc, dtype=np.float64, sep=' ')
+                elementosRaspberry = np.fromstring(lineRasp, dtype=np.float64, sep=' ') 
+
+                trajectory.AddPointsToAxis(groundTruth.GetPose(dataLogger, vo.idFrame), trajectory.typeGroundTruth)
+                trajectory.AddPointsToAxis(elementosComputer, "TrajectoryComputer")
+                trajectory.AddPointsToAxis(elementosRaspberry, "TrajectoryRaspberry")
+
+                trajectory.PrintTrajectory()
+                vo.LoadFrames()
+                cv2.waitKey(2)
+                vo.idFrame += 1
+																			 					
+    # except IndexError:
+    except MemoryError:
+        print("Erro: Index error \nFim de programa.")
     totalDistanceGroundTruth = 0.0
-    totalDistanceTrajctory = 0.0
+    totalDistanceTrajctoryComputer = 0.0
+    totalDistanceTrajctoryRaspberry = 0.0
     distanceDifference = 0.0
-    for i in range(1, len(trajectory.xValuesTrajectory)):
-        totalDistanceTrajctory += math.sqrt( (trajectory.xValuesTrajectory[i] - trajectory.xValuesTrajectory[i - 1])**2 
-                                   + (trajectory.yValuesTrajectory[i] - trajectory.yValuesTrajectory[i - 1])**2 
-                                   + (trajectory.zValuesTrajectory[i] - trajectory.zValuesTrajectory[i - 1])**2 )
+    for i in range(1, len(trajectory.xValuesTrajectoryComputer)):
+        totalDistanceTrajctoryComputer += math.sqrt( (trajectory.xValuesTrajectoryComputer[i] - trajectory.xValuesTrajectoryComputer[i - 1])**2 
+                                   + (trajectory.yValuesTrajectoryComputer[i] - trajectory.yValuesTrajectoryComputer[i - 1])**2 
+                                   + (trajectory.zValuesTrajectoryComputer[i] - trajectory.zValuesTrajectoryComputer[i - 1])**2 )
+        totalDistanceTrajctoryRaspberry += math.sqrt( (trajectory.xValuesTrajectoryRaspberry[i] - trajectory.xValuesTrajectoryRaspberry[i - 1])**2 
+                                   + (trajectory.yValuesTrajectoryRaspberry[i] - trajectory.yValuesTrajectoryRaspberry[i - 1])**2 
+                                   + (trajectory.zValuesTrajectoryRaspberry[i] - trajectory.zValuesTrajectoryRaspberry[i - 1])**2 )
         totalDistanceGroundTruth += math.sqrt( (trajectory.xValuesGroundTruth[i] - trajectory.xValuesGroundTruth[i - 1])**2 
                                    + (trajectory.yValuesGroundTruth[i] - trajectory.yValuesGroundTruth[i - 1])**2 
                                    + (trajectory.zValuesGroundTruth[i] - trajectory.zValuesGroundTruth[i - 1])**2 )
-        distanceDifference += (totalDistanceTrajctory - totalDistanceGroundTruth)
+        distanceDifference += (totalDistanceTrajctoryComputer - totalDistanceGroundTruth)
+        distanceDifference += (totalDistanceTrajctoryRaspberry - totalDistanceGroundTruth)
         
-    print(f"Distance travelled: groundTruth: {totalDistanceGroundTruth}, Trajecotry: {totalDistanceTrajctory}, Difference: {distanceDifference}")
-    print(f"Erros mimimo x: {min(trajectory.errorX)}m, y: {min(trajectory.errorY)}m, z: {min(trajectory.errorZ)}m")
-    print(f"Erros máximos x: {max(trajectory.errorX)}m, y: {max(trajectory.errorY)}m, z: {max(trajectory.errorZ)}m")
+    print(f"Distance travelled: groundTruth: {totalDistanceGroundTruth}, Trajecotry: {totalDistanceTrajctoryComputer}, Difference: {distanceDifference}")
+    print(f"Erros mimimo no computador x: {min(trajectory.errorXComputer)}m, y: {min(trajectory.errorYComputer)}m, z: {min(trajectory.errorZComputer)}m")
+    print(f"Erros máximos no computador x: {max(trajectory.errorXComputer)}m, y: {max(trajectory.errorYComputer)}m, z: {max(trajectory.errorZComputer)}m")
 
-    print(f"Erros máximos absoluto: {max(trajectory.absoluteErrors)}m")
-    print(f"Erros máximos relativo: {np.mean(trajectory.overallRelErrors)}%")
-    
-    averageFPS = round(vo.totalFPS / len(vo.framesStored), 2)
-    print(f"fps médios: {averageFPS}")
+    print(f"Erros mimimo no Raspberry Pi x: {min(trajectory.errorXRaspberry)}m, y: {min(trajectory.errorYRaspberry)}m, z: {min(trajectory.errorZRaspberry)}m")
+    print(f"Erros máximos  no Raspberry Pi x: {max(trajectory.errorXRaspberry)}m, y: {max(trajectory.errorYRaspberry)}m, z: {max(trajectory.errorZRaspberry)}m")
+
     trajectory.PrintPlots()
-    
-    cv2.waitKey(0)
 
     return 1
 
 if __name__ == '__main__':
     main()
+				
